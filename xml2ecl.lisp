@@ -6,7 +6,20 @@
 
 ;;;
 
+(defvar *layout-names* nil
+  "Used while ECL record definitions are being emitted.  Tracks the names
+of the record definitions created, so that subsequent creations don't reuse
+previously-defined names.")
+
+(defparameter *ecl-string-type* "UTF8"
+  "The ECL data type to be used for XML string types.  Can be overridden
+with an option.")
+
+;;;
+
 (defmacro with-wrapped-xml-stream ((s element-name wrapped-stream) &body body)
+  "Wrap stream WRAPPED-STREAM, containing XML data, with empty tags named ELEMENT-NAME.
+S should be the symbol of the stream that is created and will be referenced in the BODY."
   (let ((begin-tag-stream (gensym "begin_stream_"))
         (end-tag-stream (gensym "end_stream_"))
         (start-tag (gensym "start_tag_"))
@@ -19,7 +32,7 @@
              ,@body))))))
 
 (defun common-type (new-type old-type)
-  "Given two internal symbols, return an internal type that can encompass both."
+  "Given two internal data types, return an internal type that can encompass both."
   (let ((args (list new-type old-type)))
     (cond ((not old-type)
            new-type)
@@ -41,13 +54,14 @@
            'string))))
 
 (defun type-of-value (value)
+  "Determine the basic internal data type of VALUE."
   (let ((value-str (format nil "~A" value))
         (neg-char-found-p nil)
         (decimal-char-found-p nil)
         (found-type nil))
     (cond ((string= value-str "")
            (setf found-type 'default-string))
-          ((member (string-downcase value-str) '("true" "false") :test #'string=)
+          ((member (string-downcase value-str) '("true" "false" "1" "0") :test #'string=)
            (setf found-type 'boolean))
           (t
            (loop named char-walker
@@ -69,7 +83,8 @@
 
 (defun output-attrs (ns local-name qualified-name value explicitp)
   (declare (ignore ns qualified-name))
-  (format t "~4T~A = ~A (~A) : ~A~%" local-name value (type-of-value value) explicitp))
+  (when explicitp
+    (format t "~4T~A = ~A (~A)~%" local-name value (type-of-value value))))
 
 (defun process-file-or-stream (input)
   (with-open-file (file-stream (uiop:probe-file* input)
