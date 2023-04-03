@@ -18,7 +18,8 @@ with an option.")
 ;;;
 
 (defclass object-item ()
-  ((keys :accessor keys :initform (make-hash-table :test 'equalp :size 25))))
+  ((children :accessor children :initform (make-hash-table :test 'equalp :size 25))
+   (attrs :accessor attrs :initform (make-hash-table :test 'equalp :size 10))))
 
 ;;;
 
@@ -82,12 +83,17 @@ replacement characters down to a single occurrence."
                         (is-ecl-keyword-p no-dashes))
                     (apply-prefix no-dashes "f")
                     no-dashes)))
-    legal))
+    (if (string= lowername "_text")
+        lowername
+        legal)))
 
-(defun as-ecl-xpath (name)
+(defun as-ecl-xpath (name attributep)
   "Construct an ECL XPATH directive for NAME (typically an as-is JSON key)."
-  (let ((cleaned-name (remove-illegal-chars name :replacement-char #\* :keep-char-list '(#\-))))
-    (format nil "{XPATH('~A')}" cleaned-name)))
+  (if (string= name "_text")
+      "{XPATH(<>)}"
+      (let ((cleaned-name (remove-illegal-chars name :replacement-char #\* :keep-char-list '(#\-)))
+            (attr-prefix (if attributep "@" "")))
+        (format nil "{XPATH('~A~A')}" attr-prefix cleaned-name))))
 
 (defun as-dataset-type (name)
   "Construct an ECL DATASET datatype, given NAME."
@@ -124,32 +130,7 @@ as an ECL comment describing those types."
       (format nil "// ~{~A~^, ~}" (mapcar #'desc value-type)))))
 ;;;
 
-(defun common-type (new-type old-type)
-  "Given two internal data types, return an internal type that can encompass both."
-  (let ((args (list new-type old-type)))
-    (cond ((not old-type)
-           new-type)
-          ((not new-type)
-           old-type)
-          ((eql new-type old-type)
-           new-type)
-          ((member 'default-string args)
-           'default-string)
-          ((member 'string args)
-           'string)
-          ((and (member 'neg-number args)
-                (member 'pos-number args))
-           'neg-number)
-          ((and (intersection '(neg-number pos-number) args)
-                (member 'float args))
-           'float)
-          (t
-           'string))))
-
-(defun reduce-base-type (types)
-  (reduce #'common-type types))
-
-(defun type-of-value (value)
+(defun base-type (value)
   "Determine the basic internal data type of VALUE."
   (let ((value-str (format nil "~A" value))
         (neg-char-found-p nil)
@@ -177,14 +158,39 @@ as an ECL comment describing those types."
                         (return-from char-walker))))))
     found-type))
 
+(defun common-type (new-type old-type)
+  "Given two internal data types, return an internal type that can encompass both."
+  (let ((args (list new-type old-type)))
+    (cond ((not old-type)
+           new-type)
+          ((not new-type)
+           old-type)
+          ((eql new-type old-type)
+           new-type)
+          ((member 'default-string args)
+           'default-string)
+          ((member 'string args)
+           'string)
+          ((and (member 'neg-number args)
+                (member 'pos-number args))
+           'neg-number)
+          ((and (intersection '(neg-number pos-number) args)
+                (member 'float args))
+           'float)
+          (t
+           'string))))
+
+(defun reduce-base-type (types)
+  (reduce #'common-type types))
+
 ;;;
 
-(defgeneric as-ecl-field-def (value-obj name)
+(defgeneric as-ecl-field-def (value-obj name attributep)
   (:documentation "Create an ECL field definition from an object or array class."))
 
-(defmethod as-ecl-field-def ((value-obj t) name)
+(defmethod as-ecl-field-def ((value-obj t) name attributep)
   (let* ((ecl-type (as-ecl-type value-obj))
-         (xpath (as-ecl-xpath name))
+         (xpath (as-ecl-xpath name attributep))
          (comment (as-value-comment value-obj))
          (field-def (with-output-to-string (s)
                       (format s "~4T~A ~A ~A;" ecl-type (as-ecl-field-name name) xpath)
@@ -193,8 +199,8 @@ as an ECL comment describing those types."
                       (format s "~%"))))
     field-def))
 
-(defmethod as-ecl-field-def ((obj object-item) name)
-  (let* ((xpath (as-ecl-xpath name))
+(defmethod as-ecl-field-def ((obj object-item) name attributep)
+  (let* ((xpath (as-ecl-xpath name attributep))
          (field-def (with-output-to-string (s)
                       (format s "~4T~A ~A ~A" (as-dataset-type name) (as-ecl-field-name name) xpath)
                       (format s ";~%"))))
@@ -214,12 +220,15 @@ as an ECL comment describing those types."
          (my-str (with-output-to-string (s)
                    (register-layout-subname name)
                    (format s "~A := RECORD~%" (as-layout-name name))
-                   (loop for field-name being the hash-keys of (keys obj)
+                   (loop for field-name being the hash-keys of (attrs obj)
+                           using (hash-value field-value)
+                         do (format s "~A" (as-ecl-field-def field-value field-name t)))
+                   (loop for field-name being the hash-keys of (children obj)
                            using (hash-value field-value)
                          do (let ((child-recdef (as-ecl-record-def field-value field-name)))
                               (when (string/= child-recdef "")
                                 (setf result-str (format nil "~A~A" result-str child-recdef)))
-                              (format s "~A" (as-ecl-field-def field-value field-name))))
+                              (format s "~A" (as-ecl-field-def field-value field-name nil))))
                    (format s "END;~%~%")
                    )))
     (format nil "~A~A" result-str my-str)))
@@ -235,29 +244,61 @@ new instance of CLASSNAME in place and return that."
            ((and (consp ,place) (eql (car ,place) 'null-value))
             (setf ,place (make-instance ,classname)))
            ((not (typep ,place ,classname))
-            (error "json2ecl: Mismatching object types; expected ~A but found ~A"
+            (error "xml2ecl: Mismatching object types; expected ~A but found ~A"
                    (type-of ,place)
                    ,classname)))
      ,place))
 
 (defmacro parse-simple (place value)
   "Pushes the base type of VALUE onto the sequence PLACE."
-  `(unless (or (typep ,place 'array-item) (typep ,place 'object-item))
+  `(unless (typep ,place 'object-item)
      (pushnew (base-type ,value) ,place)))
 
-(defmacro parse-complex (place classname parser)
+(defmacro parse-complex (place classname source)
   "Reuse object in PLACE if possible, or create a new instance of CLASSNAME,
 then kick off a new depth of parsing with the result."
   `(progn
      (reuse-object ,place ,classname)
-     (parse-obj ,place ,parser nil)))
+     (parse-obj ,place ,source)))
 
 ;;;
 
-(defun output-attrs (ns local-name qualified-name value explicitp)
-  (declare (ignore ns qualified-name))
-  (when explicitp
-    (format t "~4T~A = ~A (~A)~%" local-name value (type-of-value value))))
+(defgeneric parse-attrs (obj source)
+  (:documentation "Parses XML attributes and inserts base data types into OBJ."))
+
+(defmethod parse-attrs ((obj object-item) source)
+  (labels ((handle-attrs (ns local-name qualified-name value explicitp)
+             (declare (ignore ns qualified-name))
+             (when explicitp
+               (parse-simple (gethash local-name (attrs obj)) value))))
+    (fxml.klacks:map-attributes #'handle-attrs source)))
+
+(defgeneric parse-obj (obj source)
+  (:documentation "Parses XML tokens into an internal object representation."))
+
+(defmethod parse-obj ((obj object-item) source)
+  (loop named parse
+        do (multiple-value-bind (event chars name) (fxml.klacks:consume source)
+             (cond ((null event)
+                    (return-from parse))
+                   ((eql event :end-document)
+                    (return-from parse))
+                   ((eql event :start-element)
+                    (parse-attrs obj source)
+                    (parse-complex (gethash name (children obj)) 'object-item source))
+                   ((eql event :end-element)
+                    (return-from parse))
+                   ((eql event :characters)
+                    (let ((text (string-trim '(#\Space #\Tab #\Newline) (format nil "~A" chars))))
+                      (parse-simple (gethash "_text" (children obj)) text)))
+                   ((member event '(:start-document))
+                    ;; stuff to ignore
+                    )
+                   (t
+                    (error "xml2ecl: Unknown event at toplevel: (~A)" event)))))
+  obj)
+
+;;;
 
 (defmacro with-wrapped-xml-stream ((s element-name wrapped-stream) &body body)
   "Wrap stream WRAPPED-STREAM, containing XML data, with empty tags named ELEMENT-NAME.
@@ -274,17 +315,12 @@ S should be the symbol of the stream that is created and will be referenced in t
              ,@body))))))
 
 (defun process-file-or-stream (input)
-  (with-open-file (file-stream (uiop:probe-file* input)
-                               :direction :input
-                               :element-type '(unsigned-byte 8))
-    (with-wrapped-xml-stream (input-stream "bogus2" file-stream)
-        (fxml.klacks:with-open-source (x (fxml:make-source input-stream :buffering nil))
-          (loop named parse
-                do (multiple-value-bind (event arg1 arg2 arg3) (fxml.klacks:consume x)
-                     (when (null event)
-                       (return-from parse))
-                     (format t "~A: ~A,~A,~A~%" event arg1 arg2 arg3)
-                     (when (eql event :start-element)
-                       (fxml.klacks:map-attributes #'output-attrs x)))))))
-  t)
+  (let ((obj (make-instance 'object-item)))
+    (with-open-file (file-stream (uiop:probe-file* input)
+                                 :direction :input
+                                 :element-type '(unsigned-byte 8))
+      (with-wrapped-xml-stream (input-stream "bogus2" file-stream)
+        (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
+          (parse-obj obj source))))
+    obj))
 
