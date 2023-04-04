@@ -15,11 +15,31 @@ previously-defined names.")
   "The ECL data type to be used for XML string types.  Can be overridden
 with an option.")
 
+(defparameter *inner-text-tag* "_inner_text"
+  "The ECL field name to use for text found within an XML tag when that
+tag has attributes.")
+
 ;;;
 
 (defclass object-item ()
   ((children :accessor children :initform (make-hash-table :test 'equalp :size 25))
-   (attrs :accessor attrs :initform (make-hash-table :test 'equalp :size 10))))
+   (attrs :accessor attrs :initform (make-hash-table :test 'equalp :size 10))
+   (visit-count :accessor visit-count :initform 0)))
+
+(defmethod only-inner-text-p ((obj t))
+  nil)
+
+(defmethod only-inner-text-p ((obj object-item))
+  (and (zerop (hash-table-count (attrs obj)))
+       (= (hash-table-count (children obj)) 1)
+       (gethash *inner-text-tag* (children obj))))
+
+(defmethod single-inner-text-p ((obj t))
+  nil)
+
+(defmethod single-inner-text-p ((obj object-item))
+  (and (= (visit-count obj) 1)
+       (only-inner-text-p obj)))
 
 ;;;
 
@@ -83,14 +103,14 @@ replacement characters down to a single occurrence."
                         (is-ecl-keyword-p no-dashes))
                     (apply-prefix no-dashes "f")
                     no-dashes)))
-    (if (string= lowername "_text")
+    (if (string= lowername *inner-text-tag*)
         lowername
         legal)))
 
 (defun as-ecl-xpath (name attributep)
   "Construct an ECL XPATH directive for NAME (typically an as-is JSON key)."
-  (if (string= name "_text")
-      "{XPATH(<>)}"
+  (if (string= name *inner-text-tag*)
+      "{XPATH('')}"
       (let ((cleaned-name (remove-illegal-chars name :replacement-char #\* :keep-char-list '(#\-)))
             (attr-prefix (if attributep "@" "")))
         (format nil "{XPATH('~A~A')}" attr-prefix cleaned-name))))
@@ -138,7 +158,7 @@ as an ECL comment describing those types."
         (found-type nil))
     (cond ((string= value-str "")
            (setf found-type 'default-string))
-          ((member (string-downcase value-str) '("true" "false" "1" "0") :test #'string=)
+          ((member (string-downcase value-str) '("true" "false") :test #'string=)
            (setf found-type 'boolean))
           (t
            (loop named char-walker
@@ -247,6 +267,7 @@ new instance of CLASSNAME in place and return that."
             (error "xml2ecl: Mismatching object types; expected ~A but found ~A"
                    (type-of ,place)
                    ,classname)))
+     (incf (visit-count ,place))
      ,place))
 
 (defmacro parse-simple (place value)
@@ -259,6 +280,7 @@ new instance of CLASSNAME in place and return that."
 then kick off a new depth of parsing with the result."
   `(progn
      (reuse-object ,place ,classname)
+     (parse-attrs ,place ,source)
      (parse-obj ,place ,source)))
 
 ;;;
@@ -276,26 +298,52 @@ then kick off a new depth of parsing with the result."
 (defgeneric parse-obj (obj source)
   (:documentation "Parses XML tokens into an internal object representation."))
 
-(defmethod parse-obj ((obj object-item) source)
+(defmethod parse-obj ((obj t) source)
   (loop named parse
-        do (multiple-value-bind (event chars name) (fxml.klacks:consume source)
+        do (let ((event (fxml.klacks:peek source)))
              (cond ((null event)
                     (return-from parse))
                    ((eql event :end-document)
                     (return-from parse))
                    ((eql event :start-element)
-                    (parse-attrs obj source)
+                    (return-from parse (parse-obj (make-instance 'object-item) source)))
+                   ((member event '(:start-document))
+                    (fxml.klacks:consume source))
+                   (t
+                    (error "xml2ecl: Unknown event at toplevel: (~A)" event))))))
+
+(defmethod parse-obj ((obj object-item) source)
+  (loop named parse
+        do (multiple-value-bind (event chars name) (fxml.klacks:consume source)
+             (cond ((null event)
+                    (return-from parse obj))
+                   ((eql event :end-document)
+                    (return-from parse obj))
+                   ((eql event :start-element)
                     (parse-complex (gethash name (children obj)) 'object-item source))
                    ((eql event :end-element)
-                    (return-from parse))
+                    (return-from parse obj))
                    ((eql event :characters)
                     (let ((text (string-trim '(#\Space #\Tab #\Newline) (format nil "~A" chars))))
-                      (parse-simple (gethash "_text" (children obj)) text)))
+                      (unless (string= text "")
+                        (parse-simple (gethash *inner-text-tag* (children obj)) text))))
                    ((member event '(:start-document))
                     ;; stuff to ignore
                     )
                    (t
-                    (error "xml2ecl: Unknown event at toplevel: (~A)" event)))))
+                    (error "xml2ecl: Unknown event at toplevel: (~A)" event))))))
+
+;;;
+
+(defmethod fixup ((obj t))
+  obj)
+
+(defmethod fixup ((obj object-item))
+  (loop for name being the hash-keys of (children obj)
+          using (hash-value child)
+        do (if (only-inner-text-p child)
+               (setf (gethash name (children obj)) '(default-string))
+               (fixup child)))
   obj)
 
 ;;;
@@ -314,13 +362,13 @@ S should be the symbol of the stream that is created and will be referenced in t
            (let ((,s (make-concatenated-stream ,begin-tag-stream ,wrapped-stream ,end-tag-stream)))
              ,@body))))))
 
-(defun process-file-or-stream (input)
-  (let ((obj (make-instance 'object-item)))
+(defun process-file-or-stream (input obj)
+  (let ((wrapper-tag "wrapper"))
     (with-open-file (file-stream (uiop:probe-file* input)
                                  :direction :input
                                  :element-type '(unsigned-byte 8))
-      (with-wrapped-xml-stream (input-stream "bogus2" file-stream)
+      (with-wrapped-xml-stream (input-stream wrapper-tag file-stream)
         (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
-          (parse-obj obj source))))
-    obj))
+          (setf obj (parse-obj obj source))))))
+  obj)
 
