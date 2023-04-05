@@ -9,4 +9,5 @@
   :depends-on (#:adopt #:flexi-streams #:fxml #:with-user-abort)
   :components ((:file "package")
                (:file "ecl_keywords")
-               (:file "xml2ecl")))
+               (:file "xml2ecl")
+               (:file "userio")))

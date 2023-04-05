@@ -2,7 +2,7 @@
 
 (in-package #:xml2ecl)
 
-(declaim (optimize (debug 3)))
+; (declaim (optimize (debug 3)))
 
 ;;;
 
@@ -15,9 +15,10 @@ previously-defined names.")
   "The ECL data type to be used for XML string types.  Can be overridden
 with an option.")
 
-(defparameter *inner-text-tag* "_inner_text"
-  "The ECL field name to use for text found within an XML tag when that
-tag has attributes.")
+(defparameter *inner-text-tag* "_inner_value"
+  "The ECL field name to use for value found within an XML tag when that
+tag has attributes, or in cases where a simple tag is repeated within
+an XML scope.")
 
 ;;;
 
@@ -120,7 +121,7 @@ replacement characters down to a single occurrence."
         legal)))
 
 (defun as-ecl-xpath (name attributep)
-  "Construct an ECL XPATH directive for NAME (typically an as-is JSON key)."
+  "Construct an ECL XPATH directive for NAME (typically an as-is XML tag)."
   (if (string= name *inner-text-tag*)
       "{XPATH('')}"
       (let ((cleaned-name (remove-illegal-chars name :replacement-char #\* :keep-char-list '(#\-)))
@@ -269,6 +270,28 @@ as an ECL comment describing those types."
 
 ;;;
 
+(
+
+ defun first-hash-table-key (hash-table)
+  (loop for k being the hash-keys of hash-table
+        do (return k)))
+
+(defun first-hash-table-value (hash-table)
+  (loop for v being the hash-values of hash-table
+        do (return v)))
+
+(defun as-ecl-dataset-example (toplevel-obj toplevel-name)
+  (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
+         (noroot-opt (if (> (max-visit-count child-obj) 1) ", NOROOT" ""))
+         (result-str (with-output-to-string (s)
+                       (format s "// ds := DATASET('~~data::~A', ~A, XML('/'~A));~%~%"
+                               (string-downcase toplevel-name)
+                               (as-layout-name toplevel-name)
+                               noroot-opt))))
+    result-str))
+
+;;;
+
 (defmacro reuse-object (place classname)
   "Return object found in PLACE if it is an instance of CLASSNAME, or create a
 new instance of CLASSNAME in place and return that."
@@ -332,6 +355,7 @@ then kick off a new depth of parsing with the result."
              (cond ((null event)
                     (return-from parse obj))
                    ((eql event :end-document)
+                    (reset-children-visits obj)
                     (return-from parse obj))
                    ((eql event :start-element)
                     (parse-complex (gethash name (children obj)) 'object-item source))
@@ -386,4 +410,10 @@ S should be the symbol of the stream that is created and will be referenced in t
         (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
           (setf obj (parse-obj obj source))))))
   (fixup obj))
+
+;;;
+
+(defun unwrap-parsed-object (obj)
+  (or (gethash "wrapper" (children obj))
+      obj))
 
