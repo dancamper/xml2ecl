@@ -24,7 +24,19 @@ tag has attributes.")
 (defclass object-item ()
   ((children :accessor children :initform (make-hash-table :test 'equalp :size 25))
    (attrs :accessor attrs :initform (make-hash-table :test 'equalp :size 10))
-   (visit-count :accessor visit-count :initform 0)))
+   (visit-count :accessor visit-count :initform 0)
+   (max-visit-count :accessor max-visit-count :initform 0)))
+
+(defmethod reset-visits ((obj t))
+  )
+
+(defmethod reset-visits ((obj object-item))
+  (setf (max-visit-count obj) (max (visit-count obj) (max-visit-count obj))
+        (visit-count obj) 0))
+
+(defmethod reset-children-visits ((obj object-item))
+  (loop for child being the hash-values of (children obj)
+        do (reset-visits child)))
 
 (defmethod only-inner-text-p ((obj t))
   nil)
@@ -38,7 +50,7 @@ tag has attributes.")
   nil)
 
 (defmethod single-inner-text-p ((obj object-item))
-  (and (= (visit-count obj) 1)
+  (and (= (max-visit-count obj) 1)
        (only-inner-text-p obj)))
 
 ;;;
@@ -322,6 +334,7 @@ then kick off a new depth of parsing with the result."
                    ((eql event :start-element)
                     (parse-complex (gethash name (children obj)) 'object-item source))
                    ((eql event :end-element)
+                    (reset-children-visits obj)
                     (return-from parse obj))
                    ((eql event :characters)
                     (let ((text (string-trim '(#\Space #\Tab #\Newline) (format nil "~A" chars))))
@@ -341,7 +354,7 @@ then kick off a new depth of parsing with the result."
 (defmethod fixup ((obj object-item))
   (loop for name being the hash-keys of (children obj)
           using (hash-value child)
-        do (if (only-inner-text-p child)
+        do (if (single-inner-text-p child)
                (setf (gethash name (children obj)) '(default-string))
                (fixup child)))
   obj)
@@ -370,5 +383,5 @@ S should be the symbol of the stream that is created and will be referenced in t
       (with-wrapped-xml-stream (input-stream wrapper-tag file-stream)
         (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
           (setf obj (parse-obj obj source))))))
-  obj)
+  (fixup obj))
 
