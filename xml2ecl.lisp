@@ -165,8 +165,6 @@ as an ECL comment describing those types."
 (defun base-type (value)
   "Determine the basic internal data type of VALUE."
   (let ((value-str (format nil "~A" value))
-        (neg-char-found-p nil)
-        (decimal-char-found-p nil)
         (found-type nil))
     (cond ((string= value-str "")
            (setf found-type 'default-string))
@@ -175,10 +173,13 @@ as an ECL comment describing those types."
           (t
            (loop named char-walker
                  for c across value-str
+                 with pos = 0
+                 with decimal-char-found-p = nil
                  do (progn
-                      (cond ((and (eql c #\-) (not neg-char-found-p))
-                             (setf neg-char-found-p t
-                                   found-type (common-type 'neg-number found-type)))
+                      (cond ((and (eql c #\-) (zerop pos))
+                             (setf found-type (common-type 'neg-number found-type)))
+                            ((and (eql c #\+) (zerop pos))
+                             (setf found-type (common-type 'pos-number found-type)))
                             ((digit-char-p c)
                              (setf found-type (common-type 'pos-number found-type)))
                             ((and (eql c #\.) (not decimal-char-found-p))
@@ -186,6 +187,7 @@ as an ECL comment describing those types."
                                    found-type (common-type 'float found-type)))
                             (t
                              (setf found-type 'default-string)))
+                      (incf pos)
                       (when (eql found-type 'default-string)
                         (return-from char-walker))))))
     found-type))
