@@ -284,7 +284,7 @@ as an ECL comment describing those types."
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
          (noroot-opt (if (> (max-visit-count child-obj) 1) ", NOROOT" ""))
          (result-str (with-output-to-string (s)
-                       (format s "// ds := DATASET('~~data::~A', ~A, XML('/'~A));~%~%"
+                       (format s "// ds := DATASET('~~data::~A', ~A, XML(''~A));~%~%"
                                (string-downcase toplevel-name)
                                (as-layout-name toplevel-name)
                                noroot-opt))))
