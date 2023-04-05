@@ -2,7 +2,7 @@
 
 (in-package #:xml2ecl)
 
-(declaim (optimize (debug 3)))
+; (declaim (optimize (debug 3)))
 
 ;;;
 
@@ -254,7 +254,9 @@ as an ECL comment describing those types."
   (let* ((result-str "")
          (my-str (with-output-to-string (s)
                    (register-layout-subname name)
-                   (format s "~A := RECORD~%" (as-layout-name name))
+                   (format s "~A := RECORD" (as-layout-name name))
+                   ; (format s " // ~A" (max-visit-count obj))
+                   (format s "~%")
                    (loop for field-name being the hash-keys of (attrs obj)
                            using (hash-value field-value)
                          do (format s "~A" (as-ecl-field-def field-value field-name t)))
