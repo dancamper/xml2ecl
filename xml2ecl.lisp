@@ -401,15 +401,21 @@ S should be the symbol of the stream that is created and will be referenced in t
            (let ((,s (make-concatenated-stream ,begin-tag-stream ,wrapped-stream ,end-tag-stream)))
              ,@body))))))
 
-(defun process-file-or-stream (input obj)
+(defun process-stream (input obj)
   (let ((wrapper-tag "wrapper"))
-    (with-open-file (file-stream (uiop:probe-file* input)
-                                 :direction :input
-                                 :element-type '(unsigned-byte 8))
-      (with-wrapped-xml-stream (input-stream wrapper-tag file-stream)
-        (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
-          (setf obj (parse-obj obj source))))))
+    (with-wrapped-xml-stream (input-stream wrapper-tag input)
+      (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
+        (setf obj (parse-obj obj source)))))
   (fixup obj))
+
+(defmethod process-file-or-stream (input obj)
+  (with-open-file (file-stream (uiop:probe-file* input)
+                               :direction :input
+                               :element-type '(unsigned-byte 8))
+    (process-stream file-stream obj)))
+
+(defmethod process-file-or-stream ((input stream) obj)
+  (process-stream input obj))
 
 ;;;
 
