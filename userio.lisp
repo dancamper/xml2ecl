@@ -123,6 +123,8 @@ Home: https://github.com/dancamper/xml2ecl")
       (loop for input in args
             do (let ((one-item (or (uiop:probe-file* input) input)))
                  (setf result-obj (process-file-or-stream one-item result-obj))))
+      ;; Fixup XML child objects
+      (setf result-obj (fixup result-obj))
       ;; Unwrap the top layer, which we manually iinserted
       (setf result-obj (unwrap-parsed-object result-obj))
       ;; Emit ECL record definitions

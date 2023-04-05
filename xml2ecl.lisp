@@ -2,7 +2,7 @@
 
 (in-package #:xml2ecl)
 
-; (declaim (optimize (debug 3)))
+(declaim (optimize (debug 3)))
 
 ;;;
 
@@ -302,8 +302,8 @@ new instance of CLASSNAME in place and return that."
             (setf ,place (make-instance ,classname)))
            ((not (typep ,place ,classname))
             (error "xml2ecl: Mismatching object types; expected ~A but found ~A"
-                   (type-of ,place)
-                   ,classname)))
+                   ,classname
+                   (type-of ,place))))
      (incf (visit-count ,place))
      ,place))
 
@@ -370,7 +370,7 @@ then kick off a new depth of parsing with the result."
                     ;; stuff to ignore
                     )
                    (t
-                    (error "xml2ecl: Unknown event at toplevel: (~A)" event))))))
+                    (error "xml2ecl: Unknown event: (~A)" event))))))
 
 ;;;
 
@@ -406,7 +406,7 @@ S should be the symbol of the stream that is created and will be referenced in t
     (with-wrapped-xml-stream (input-stream wrapper-tag input)
       (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
         (setf obj (parse-obj obj source)))))
-  (fixup obj))
+  obj)
 
 (defmethod process-file-or-stream (input obj)
   (with-open-file (file-stream (uiop:probe-file* input)
