@@ -124,11 +124,11 @@ Home: https://github.com/dancamper/xml2ecl")
       ;; Fixup XML child objects
       (setf result-obj (fixup result-obj))
       ;; Unwrap the top layer, which we manually iinserted
-      (setf result-obj (unwrap-parsed-object result-obj))
-      ;; Emit ECL record definitions
-      (setf *layout-names* nil)
-      (format t "~A" (as-ecl-record-def result-obj toplevel-name))
-      (format t "~A" (as-ecl-dataset-example result-obj toplevel-name)))))
+      (multiple-value-bind (new-result-obj top-xpath) (unwrap-parsed-object result-obj)
+        ;; Emit ECL record definitions
+        (setf *layout-names* nil)
+        (format t "~A" (as-ecl-record-def new-result-obj toplevel-name))
+        (format t "~A" (as-ecl-dataset-example new-result-obj toplevel-name top-xpath))))))
 
 (defun toplevel (argv)
   "CLI-level entry point."

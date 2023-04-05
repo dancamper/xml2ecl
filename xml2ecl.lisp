@@ -272,9 +272,7 @@ as an ECL comment describing those types."
 
 ;;;
 
-(
-
- defun first-hash-table-key (hash-table)
+(defun first-hash-table-key (hash-table)
   (loop for k being the hash-keys of hash-table
         do (return k)))
 
@@ -282,13 +280,20 @@ as an ECL comment describing those types."
   (loop for v being the hash-values of hash-table
         do (return v)))
 
-(defun as-ecl-dataset-example (toplevel-obj toplevel-name)
+(defun first-hash-table-kv (hash-table)
+  (loop for k being the hash-keys of hash-table
+          using (hash-value v)
+        do (return (values k v))))
+
+(defun as-ecl-dataset-example (toplevel-obj toplevel-name toplevel-xpath)
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
-         (noroot-opt (if (> (max-visit-count child-obj) 1) ", NOROOT" ""))
+         (noroot-opt (if (and (eql (type-of child-obj) 'object-item)
+                              (> (max-visit-count child-obj) 1)) ", NOROOT" ""))
          (result-str (with-output-to-string (s)
-                       (format s "// ds := DATASET('~~data::~A', ~A, XML(''~A));~%~%"
+                       (format s "// ds := DATASET('~~data::~A', ~A, XML('~A'~A));~%~%"
                                (string-downcase toplevel-name)
                                (as-layout-name toplevel-name)
+                               toplevel-xpath
                                noroot-opt))))
     result-str))
 
@@ -422,6 +427,18 @@ S should be the symbol of the stream that is created and will be referenced in t
 ;;;
 
 (defun unwrap-parsed-object (obj)
-  (or (gethash "wrapper" (children obj))
-      obj))
+  (let ((top-obj (or (gethash "wrapper" (children obj)) obj))
+        (top-xpath nil))
+    (loop named unwrap
+          do (multiple-value-bind (child-name child-obj) (first-hash-table-kv (children top-obj))
+               (if (and (zerop (hash-table-count (attrs top-obj)))
+                        (= (hash-table-count (children top-obj)) 1)
+                        (eql (type-of child-obj) 'object-item))
+                   (setf top-obj child-obj
+                         top-xpath (with-output-to-string (s)
+                                     (when top-xpath
+                                       (format s "~A/" top-xpath))
+                                     (format s "~A" child-name)))
+                   (return-from unwrap))))
+    (values top-obj top-xpath)))
 
