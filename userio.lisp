@@ -45,9 +45,7 @@
     ("Process all XML files in the current directory:"
      . "xml2ecl *.xml")
     ("Process XML data coming from a file via stdin:"
-     . "cat foo.xml | xml2ecl")
-    ("Process a REST result:"
-     . "curl -s 'https://jsonplaceholder.typicode.com/todos' | xml2ecl")))
+     . "cat foo.xml | xml2ecl")))
 
 (adopt:define-string *help-text*
   "xml2ecl examines XML data and deduces the ECL RECORD definitions necessary to parse it. ~
