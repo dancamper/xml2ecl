@@ -5,6 +5,7 @@
 - [Building From Source](#building_from_source)
 - [How to Use](#how_to_use)
 - [Examples](#examples)
+- [Limitations](#limitations)
 
 <a name="description"></a>
 # Description
@@ -125,17 +126,13 @@ was modified with the `f_` prefix and an ECL XPATH markup added.
 ```none
 $ xml2ecl foo.xml
 
-NODE_LAYOUT := RECORD
+FOO_LAYOUT := RECORD
     UNSIGNED start {XPATH('@start')};
     REAL f_end {XPATH('@end')};
     UTF8 foo {XPATH('foo')};
 END;
 
-FOO_LAYOUT := RECORD
-    DATASET(NODE_LAYOUT) node {XPATH('node')};
-END;
-
-// ds := DATASET('~data::foo', FOO_LAYOUT, XML('/'));
+// ds := DATASET('~data::foo', FOO_LAYOUT, XML('node'));
 ````
 
 You can pipe XML content instead of reading a file.  Note that if you pipe
@@ -147,17 +144,13 @@ Example of piping the contents of a single file:
 ```none
 $ cat foo.xml | xml2ecl 
 
-NODE_LAYOUT := RECORD
+TOPLEVEL_223_LAYOUT := RECORD
     UNSIGNED start {XPATH('@start')};
     REAL f_end {XPATH('@end')};
     UTF8 foo {XPATH('foo')};
 END;
 
-TOPLEVEL_226_LAYOUT := RECORD
-    DATASET(NODE_LAYOUT) node {XPATH('node')};
-END;
-
-// ds := DATASET('~data::toplevel_226', TOPLEVEL_226_LAYOUT, XML('/'));
+// ds := DATASET('~data::toplevel_223', TOPLEVEL_223_LAYOUT, XML('node'));
 ````
 
 Simple example of overriding the default string ECL data type:
@@ -165,17 +158,13 @@ Simple example of overriding the default string ECL data type:
 ```none
 $ xml2ecl -s STRING foo.xml
 
-NODE_LAYOUT := RECORD
+FOO_LAYOUT := RECORD
     UNSIGNED start {XPATH('@start')};
     REAL f_end {XPATH('@end')};
     STRING foo {XPATH('foo')};
 END;
 
-FOO_LAYOUT := RECORD
-    DATASET(NODE_LAYOUT) node {XPATH('node')};
-END;
-
-// ds := DATASET('~data::foo', FOO_LAYOUT, XML('/'));
+// ds := DATASET('~data::foo', FOO_LAYOUT, XML('node'));
 ````
 
 If you process multiple XML files at once, xml2ecl assumes that each file represents
@@ -198,16 +187,65 @@ were merged:
 ```none
 $ xml2ecl foo.xml baz.xml 
 
-NODE_LAYOUT := RECORD
+TOPLEVEL_223_LAYOUT := RECORD
     UNSIGNED start {XPATH('@start')};
     STRING f_end {XPATH('@end')}; // boolean, float
     REAL incr {XPATH('@incr')};
     UTF8 foo {XPATH('foo')};
 END;
 
-TOPLEVEL_226_LAYOUT := RECORD
-    DATASET(NODE_LAYOUT) node {XPATH('node')};
+// ds := DATASET('~data::toplevel_223', TOPLEVEL_223_LAYOUT, XML('node'));
+```
+
+One of the more interesting uses for xml2ecl is determining the record structure
+needed to parse a SOAP API call.  Here is a call
+showing a reply to an example RPC call:
+
+```none
+$ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11'
+
+<?xml version="1.0" encoding="UTF-8" ?>
+<SOAP-ENV:Envelope xmlns:SOAP-ENV='http://schemas.xmlsoap.org/soap/envelope/' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xmlns:s='http://www.w3.org/2001/XMLSchema'>
+  <SOAP-ENV:Body><AddIntegerResponse xmlns="http://tempuri.org"><AddIntegerResult>42</AddIntegerResult></AddIntegerResponse></SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+```
+
+Unfortunately, xml2ecl does not correctly parse the XML preamble of
+`<?xml version="1.0" encoding="UTF-8" ?>` but if you remove that part, the remainder
+is parsed just fine:
+
+```none
+$ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11' \
+    | sed -e 's/<\?.*\?>//' \
+    | xml2ecl 
+
+ADDINTEGERRESPONSE_LAYOUT := RECORD
+    UTF8 f_xmlns {XPATH('@xmlns')};
+    UNSIGNED addintegerresult {XPATH('AddIntegerResult')};
 END;
 
-// ds := DATASET('~data::toplevel_226', TOPLEVEL_226_LAYOUT, XML('/'));
+BODY_LAYOUT := RECORD
+    DATASET(ADDINTEGERRESPONSE_LAYOUT) addintegerresponse {XPATH('AddIntegerResponse')};
+END;
+
+TOPLEVEL_223_LAYOUT := RECORD
+    UTF8 soap_env {XPATH('@SOAP-ENV')};
+    UTF8 xsi {XPATH('@xsi')};
+    UTF8 s {XPATH('@s')};
+    DATASET(BODY_LAYOUT) body {XPATH('Body')};
+END;
+
+// ds := DATASET('~data::toplevel_223', TOPLEVEL_223_LAYOUT, XML('Envelope'));
 ```
+
+<a name="limitations"></a>
+# Limitations
+
+* xml2ecl does not (currently) handle the XML preamble:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+```
+
+You must remove this from your data files or streams before handing it over to
+xml2ecl for processing.

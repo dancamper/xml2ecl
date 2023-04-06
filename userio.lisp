@@ -45,7 +45,9 @@
     ("Process all XML files in the current directory:"
      . "xml2ecl *.xml")
     ("Process XML data coming from a file via stdin:"
-     . "cat foo.xml | xml2ecl")))
+     . "cat foo.xml | xml2ecl")
+    ("Process a SOAP result (with sed processing):"
+     . "curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11' | sed -e 's/<\?.*\?>//' | xml2ecl")))
 
 (adopt:define-string *help-text*
   "xml2ecl examines XML data and deduces the ECL RECORD definitions necessary to parse it. ~
