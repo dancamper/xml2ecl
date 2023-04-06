@@ -2,7 +2,7 @@
 
 (in-package #:xml2ecl)
 
-; (declaim (optimize (debug 3)))
+;; (declaim (optimize (debug 3)))
 
 ;;;
 
@@ -69,7 +69,7 @@ replacement characters down to a single occurrence."
                              :from-end t))
          (initial (substitute-if replacement-char
                                  (lambda (c) (not (or (alphanumericp c) (member c keep-chars))))
-                                 name))
+                                 (or name "")))
          (skip nil)
          (result (with-output-to-string (s)
                    (loop for c across initial
@@ -334,9 +334,10 @@ then kick off a new depth of parsing with the result."
 
 (defmethod parse-attrs ((obj object-item) source)
   (labels ((handle-attrs (ns local-name qualified-name value explicitp)
-             (declare (ignore ns qualified-name))
-             (when explicitp
-               (parse-simple (gethash local-name (attrs obj)) value))))
+             (declare (ignore ns))
+             (let ((name (or local-name qualified-name)))
+               (when explicitp
+                 (parse-simple (gethash name (attrs obj)) value)))))
     (fxml.klacks:map-attributes #'handle-attrs source)))
 
 (defgeneric parse-obj (obj source)
@@ -353,6 +354,9 @@ then kick off a new depth of parsing with the result."
                     (return-from parse (parse-obj (make-instance 'object-item) source)))
                    ((member event '(:start-document))
                     (fxml.klacks:consume source))
+                   ((member event '(:start-document :dtd :comment))
+                    ;; stuff to ignore
+                    )
                    (t
                     (error "xml2ecl: Unknown event at toplevel: (~A)" event))))))
 
@@ -373,7 +377,7 @@ then kick off a new depth of parsing with the result."
                     (let ((text (string-trim '(#\Space #\Tab #\Newline) (format nil "~A" chars))))
                       (unless (string= text "")
                         (parse-simple (gethash *inner-text-tag* (children obj)) text))))
-                   ((member event '(:start-document))
+                   ((member event '(:start-document :dtd :comment))
                     ;; stuff to ignore
                     )
                    (t
@@ -388,7 +392,8 @@ then kick off a new depth of parsing with the result."
   (loop for name being the hash-keys of (children obj)
           using (hash-value child)
         do (if (single-inner-text-p child)
-               (setf (gethash name (children obj)) '(default-string))
+               (setf (gethash name (children obj)) (gethash *inner-text-tag*
+                                                            (children (gethash name (children obj)))))
                (fixup child)))
   obj)
 
@@ -410,6 +415,12 @@ S should be the symbol of the stream that is created and will be referenced in t
 
 (defun process-stream (input obj)
   (let ((wrapper-tag "wrapper"))
+    ;; Skip directives and such at the beginning of the source
+    (fxml.klacks:with-open-source (source (fxml:make-source input :buffering nil))
+      (loop named skip-directives
+            do (if (member (fxml.klacks:peek source) '(:processing-instruction :dtd :comment))
+                   (fxml.klacks:consume source)
+                   (return-from skip-directives))))
     (with-wrapped-xml-stream (input-stream wrapper-tag input)
       (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
         (setf obj (parse-obj obj source)))))
