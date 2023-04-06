@@ -415,15 +415,10 @@ S should be the symbol of the stream that is created and will be referenced in t
 
 (defun process-stream (input obj)
   (let ((wrapper-tag "wrapper"))
-    ;; Skip directives and such at the beginning of the source
-    (fxml.klacks:with-open-source (source (fxml:make-source input :buffering nil))
-      (loop named skip-directives
-            do (if (member (fxml.klacks:peek source) '(:processing-instruction :dtd :comment))
-                   (fxml.klacks:consume source)
-                   (return-from skip-directives))))
     (with-wrapped-xml-stream (input-stream wrapper-tag input)
-      (fxml.klacks:with-open-source (source (fxml:make-source input-stream :buffering nil))
-        (setf obj (parse-obj obj source)))))
+      (fxml.klacks:with-open-source (source (fxml:make-source input-stream))
+        (handler-bind ((fxml:well-formedness-violation #'continue))
+          (setf obj (parse-obj obj source))))))
   obj)
 
 (defmethod process-file-or-stream (input obj)
