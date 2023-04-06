@@ -15,6 +15,8 @@ previously-defined names.")
   "The ECL data type to be used for XML string types.  Can be overridden
 with an option.")
 
+(defparameter *wrapper-xml-tag* "wrapper")
+
 (defparameter *inner-text-tag* "_inner_value"
   "The ECL field name to use for value found within an XML tag when that
 tag has attributes, or in cases where a simple tag is repeated within
@@ -414,7 +416,7 @@ S should be the symbol of the stream that is created and will be referenced in t
              ,@body))))))
 
 (defun process-stream (input obj)
-  (let ((wrapper-tag "wrapper"))
+  (let ((wrapper-tag *wrapper-xml-tag*))
     (with-wrapped-xml-stream (input-stream wrapper-tag input)
       (fxml.klacks:with-open-source (source (fxml:make-source input-stream))
         (handler-bind ((fxml:well-formedness-violation #'continue))
@@ -433,7 +435,7 @@ S should be the symbol of the stream that is created and will be referenced in t
 ;;;
 
 (defun unwrap-parsed-object (obj)
-  (let ((top-obj (or (gethash "wrapper" (children obj)) obj))
+  (let ((top-obj (or (gethash *wrapper-xml-tag* (children obj)) obj))
         (top-xpath nil))
     (loop named unwrap
           do (multiple-value-bind (child-name child-obj) (first-hash-table-kv (children top-obj))
