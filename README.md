@@ -210,14 +210,10 @@ $ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteg
 </SOAP-ENV:Envelope>
 ```
 
-Unfortunately, xml2ecl does not correctly parse the XML preamble of
-`<?xml version="1.0" encoding="UTF-8" ?>` but if you remove that part, the remainder
-is parsed just fine:
+This can be piped to xml2ecl to derive a RECORD structure that will parse the reply:
 
 ```none
-$ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11' \
-    | sed -e 's/<\?.*\?>//' \
-    | xml2ecl 
+$ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11' | xml2ecl 
 
 ADDINTEGERRESPONSE_LAYOUT := RECORD
     UTF8 f_xmlns {XPATH('@xmlns')};
@@ -241,11 +237,4 @@ END;
 <a name="limitations"></a>
 # Limitations
 
-* xml2ecl does not (currently) handle the XML preamble:
-
-```xml
-<?xml version="1.0" encoding="UTF-8" ?>
-```
-
-You must remove this from your data files or streams before handing it over to
-xml2ecl for processing.
+* Namespace handling has not been fully tested.
