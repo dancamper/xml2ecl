@@ -234,6 +234,19 @@ END;
 // ds := DATASET('~data::toplevel_223', TOPLEVEL_223_LAYOUT, XML('Envelope'));
 ```
 
+The previous example emits a sample DATASET() as a comment, but you would probably
+want to use it within ECL code instead:
+
+```ecl
+ds := HTTPCALL
+    (
+        'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11',
+        'GET',
+        'text/xml',
+        TOPLEVEL_525_LAYOUT
+    );
+```
+
 <a name="limitations"></a>
 # Limitations
 
