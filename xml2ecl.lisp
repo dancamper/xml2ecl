@@ -162,6 +162,7 @@ as an ECL comment describing those types."
                  (neg-number "signed integer")
                  (t (format nil "~(~A~)" v)))))
       (format nil "// ~{~A~^, ~}" (mapcar #'desc value-type)))))
+
 ;;;
 
 (defun base-type (value)
