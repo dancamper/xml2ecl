@@ -46,7 +46,7 @@
      . "xml2ecl *.xml")
     ("Process XML data coming from a file via stdin:"
      . "cat foo.xml | xml2ecl")
-    ("Process a SOAP result (with sed processing):"
+    ("Process a SOAP result:"
      . "curl -s 'https://www.example.com/SOAP.Demo.cls' | xml2ecl")))
 
 (adopt:define-string *help-text*
@@ -104,7 +104,7 @@ Home: https://github.com/dancamper/xml2ecl")
 
 (defun run (args &key (string-type *ecl-string-type*))
   "Dev-level entry point."
-  (let* ((argc (length args))
+  (let* ((argc (if (listp args) (length args) 0))
          (args (if (plusp argc) args (list *standard-input*))))
     ;; Verify that files exist
     (when (plusp argc)

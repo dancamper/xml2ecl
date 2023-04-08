@@ -71,19 +71,19 @@ replacement characters down to a single occurrence."
                              :from-end t))
          (initial (substitute-if replacement-char
                                  (lambda (c) (not (or (alphanumericp c) (member c keep-chars))))
-                                 (or name "")))
-         (skip nil)
-         (result (with-output-to-string (s)
-                   (loop for c across initial
-                         do (progn
-                              (unless (and (eql c replacement-char) skip)
-                                (format s "~A" c))
-                              (setf skip (eql c replacement-char)))))))
-    result))
+                                 (or name ""))))
+    (with-output-to-string (s)
+      (loop for c across initial
+            with skip = nil
+            do (progn
+                 (unless (and (eql c replacement-char) skip)
+                   (format s "~A" c))
+                 (setf skip (eql c replacement-char)))))))
 
 ;;;
 
 (defun apply-prefix (name prefix-char)
+  "Conditionally append  prefix PREFIX-CHAR to NAME."
   (format nil "~A~A~A"
           prefix-char
           (if (char= (elt name 0) #\_) "" "_")
@@ -104,23 +104,22 @@ replacement characters down to a single occurrence."
 ;;;
 
 (defun as-layout-name (name)
-  "Construct a string that is a suitable ECL RECORD attribute, based on NAME."
+  "Construct a unique string that is a suitable ECL RECORD attribute, based on NAME."
   (let* ((legal-name (legal-layout-subname name))
-         (name-count (count-if #'(lambda (x) (equalp x legal-name)) *layout-names*))
-         (interstitial (if (< name-count 2) "" (format nil "_~3,'0D" name-count))))
+         (found-count (count-if #'(lambda (x) (equalp x legal-name)) *layout-names*))
+         (interstitial (if (< found-count 2) "" (format nil "_~3,'0D" found-count))))
     (format nil "~A~A_LAYOUT" legal-name interstitial)))
 
 (defun as-ecl-field-name (name)
   "Return a copy of NAME that is suitable to be used as an ECL attribute."
-  (let* ((lowername (string-downcase name))
-         (no-dashes (remove-illegal-chars lowername))
-         (legal (if (or (not (alpha-char-p (elt no-dashes 0)))
-                        (is-ecl-keyword-p no-dashes))
-                    (apply-prefix no-dashes "f")
-                    no-dashes)))
+  (let ((lowername (string-downcase name)))
     (if (string= lowername *inner-text-tag*)
         lowername
-        legal)))
+        (let ((no-dashes (remove-illegal-chars lowername)))
+          (if (or (not (alpha-char-p (elt no-dashes 0)))
+                  (is-ecl-keyword-p no-dashes))
+              (apply-prefix no-dashes "f")
+              no-dashes)))))
 
 (defun as-ecl-xpath (name attributep)
   "Construct an ECL XPATH directive for NAME (typically an as-is XML tag)."
@@ -218,6 +217,7 @@ as an ECL comment describing those types."
            'string))))
 
 (defun reduce-base-type (types)
+  "Apply `common-type` to all elements in a list, reducing to a single base type."
   (reduce #'common-type types))
 
 ;;;
@@ -226,22 +226,19 @@ as an ECL comment describing those types."
   (:documentation "Create an ECL field definition from an object or array class."))
 
 (defmethod as-ecl-field-def ((value-obj t) name attributep)
-  (let* ((ecl-type (as-ecl-type value-obj))
-         (xpath (as-ecl-xpath name attributep))
-         (comment (as-value-comment value-obj))
-         (field-def (with-output-to-string (s)
-                      (format s "~4T~A ~A ~A;" ecl-type (as-ecl-field-name name) xpath)
-                      (when comment
-                        (format s " ~A" comment))
-                      (format s "~%"))))
-    field-def))
+  (let ((ecl-type (as-ecl-type value-obj))
+        (xpath (as-ecl-xpath name attributep))
+        (comment (as-value-comment value-obj)))
+    (with-output-to-string (s)
+      (format s "~4T~A ~A ~A;" ecl-type (as-ecl-field-name name) xpath)
+      (when comment
+        (format s " ~A" comment))
+      (format s "~%"))))
 
 (defmethod as-ecl-field-def ((obj object-item) name attributep)
-  (let* ((xpath (as-ecl-xpath name attributep))
-         (field-def (with-output-to-string (s)
-                      (format s "~4T~A ~A ~A" (as-dataset-type name) (as-ecl-field-name name) xpath)
-                      (format s ";~%"))))
-    field-def))
+  (with-output-to-string (s)
+    (format s "~4T~A ~A ~A" (as-dataset-type name) (as-ecl-field-name name) (as-ecl-xpath name attributep))
+    (format s ";~%")))
 
 ;;;
 
@@ -288,16 +285,16 @@ as an ECL comment describing those types."
         do (return (values k v))))
 
 (defun as-ecl-dataset-example (toplevel-obj toplevel-name toplevel-xpath)
+  "Create an ECL comment containing an example DATASET() invocation."
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
          (noroot-opt (if (and (eql (type-of child-obj) 'object-item)
-                              (> (max-visit-count child-obj) 1)) ", NOROOT" ""))
-         (result-str (with-output-to-string (s)
-                       (format s "// ds := DATASET('~~data::~A', ~A, XML('~A'~A));~%~%"
-                               (string-downcase toplevel-name)
-                               (as-layout-name toplevel-name)
-                               toplevel-xpath
-                               noroot-opt))))
-    result-str))
+                              (> (max-visit-count child-obj) 1)) ", NOROOT" "")))
+    (with-output-to-string (s)
+      (format s "// ds := DATASET('~~data::~A', ~A, XML('~A'~A));~%~%"
+              (string-downcase toplevel-name)
+              (as-layout-name toplevel-name)
+              toplevel-xpath
+              noroot-opt))))
 
 ;;;
 
@@ -335,6 +332,7 @@ then kick off a new depth of parsing with the result."
   (:documentation "Parses XML attributes and inserts base data types into OBJ."))
 
 (defmethod parse-attrs ((obj object-item) source)
+  "Process XML tag attributes that may appear in the data."
   (labels ((handle-attrs (ns local-name qualified-name value explicitp)
              (declare (ignore ns))
              (let ((name (or local-name qualified-name)))
@@ -387,6 +385,10 @@ then kick off a new depth of parsing with the result."
 
 ;;;
 
+(defgeneric fixup (obj)
+  (:documentation "Find cases where a child dataset is referenced but the child is really
+just a single attribute; those can be 'promoted' to a scalar and the child dataset removed."))
+
 (defmethod fixup ((obj t))
   obj)
 
@@ -416,6 +418,9 @@ S should be the symbol of the stream that is created and will be referenced in t
              ,@body))))))
 
 (defun skip-xml-encoding-in-stream (xml-stream)
+  "Scan for XML encoding directives and skip past them.  This is necessary because we 'wrap'
+the XML file or stream in another XML tag so as to correctly parse invalid XML that contains
+no root tag (this kind of no-root data is supported by ECL, so we have to support it as well)."
   (let ((local-stream (flexi-streams:make-flexi-stream xml-stream)))
     (flet ((s-peek (s)
              (flexi-streams:peek-byte s nil nil nil))
@@ -435,6 +440,8 @@ S should be the symbol of the stream that is created and will be referenced in t
             (file-position local-stream 0))))))
 
 (defun process-stream (input obj)
+  "Given a stream, wrap it in our own XML tags and then process it, stuffing the result
+into OBJ."
   (let ((wrapper-tag *wrapper-xml-tag*))
     (skip-xml-encoding-in-stream input)
     (with-wrapped-xml-stream (input-stream wrapper-tag input)
@@ -444,6 +451,7 @@ S should be the symbol of the stream that is created and will be referenced in t
   obj)
 
 (defmethod process-file-or-stream (input obj)
+  "Convert a file to a stream for processing."
   (with-open-file (file-stream (uiop:probe-file* input)
                                :direction :input
                                :element-type '(unsigned-byte 8))
@@ -455,6 +463,8 @@ S should be the symbol of the stream that is created and will be referenced in t
 ;;;
 
 (defun unwrap-parsed-object (obj)
+  "After processing, we need to find the first child result object that makes sense to
+be the 'root' object."
   (let ((top-obj (or (gethash *wrapper-xml-tag* (children obj)) obj))
         (top-xpath nil))
     (loop named unwrap
