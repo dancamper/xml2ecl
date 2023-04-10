@@ -24,27 +24,32 @@ an XML scope.")
 
 ;;;
 
-(defclass object-item ()
-  ((children :accessor children :initform (make-hash-table :test 'equalp :size 25))
-   (attrs :accessor attrs :initform (make-hash-table :test 'equalp :size 10))
-   (visit-count :accessor visit-count :initform 0)
+(defclass base-object ()
+  ((visit-count :accessor visit-count :initform 0)
    (max-visit-count :accessor max-visit-count :initform 0)))
+
+(defclass xml-object (base-object)
+  ((children :accessor children :initform (make-hash-table :test 'equalp :size 25))
+   (attrs :accessor attrs :initform (make-hash-table :test 'equalp :size 10))))
 
 (defmethod reset-visits ((obj t))
   )
 
-(defmethod reset-visits ((obj object-item))
+(defmethod reset-visits ((obj base-object))
   (setf (max-visit-count obj) (max (visit-count obj) (max-visit-count obj))
         (visit-count obj) 0))
 
-(defmethod reset-children-visits ((obj object-item))
+(defmethod reset-children-visits ((obj t))
+  )
+
+(defmethod reset-children-visits ((obj xml-object))
   (loop for child being the hash-values of (children obj)
         do (reset-visits child)))
 
 (defmethod only-inner-text-p ((obj t))
   nil)
 
-(defmethod only-inner-text-p ((obj object-item))
+(defmethod only-inner-text-p ((obj xml-object))
   (and (zerop (hash-table-count (attrs obj)))
        (= (hash-table-count (children obj)) 1)
        (gethash *inner-text-tag* (children obj))))
@@ -52,7 +57,7 @@ an XML scope.")
 (defmethod single-inner-text-p ((obj t))
   nil)
 
-(defmethod single-inner-text-p ((obj object-item))
+(defmethod single-inner-text-p ((obj xml-object))
   (and (= (max-visit-count obj) 1)
        (only-inner-text-p obj)))
 
@@ -118,14 +123,14 @@ replacement characters down to a single occurrence."
                  with decimal-char-found-p = nil
                  do (progn
                       (cond ((and (eql c #\-) (zerop pos))
-                             (setf found-type (common-type 'neg-number found-type)))
+                             (setf found-type (common-base-type 'neg-number found-type)))
                             ((and (eql c #\+) (zerop pos))
-                             (setf found-type (common-type 'pos-number found-type)))
+                             (setf found-type (common-base-type 'pos-number found-type)))
                             ((digit-char-p c)
-                             (setf found-type (common-type 'pos-number found-type)))
+                             (setf found-type (common-base-type 'pos-number found-type)))
                             ((and (eql c #\.) (not decimal-char-found-p))
                              (setf decimal-char-found-p t
-                                   found-type (common-type 'float found-type)))
+                                   found-type (common-base-type 'float found-type)))
                             (t
                              (setf found-type 'default-string)))
                       (incf pos)
@@ -133,7 +138,7 @@ replacement characters down to a single occurrence."
                         (return-from char-walker))))))
     found-type))
 
-(defun common-type (new-type old-type)
+(defun common-base-type (new-type old-type)
   "Given two internal data types, return an internal type that can encompass both."
   (let ((args (list new-type old-type)))
     (cond ((not old-type)
@@ -156,8 +161,8 @@ replacement characters down to a single occurrence."
            'string))))
 
 (defun reduce-base-type (types)
-  "Apply `common-type` to all elements in a list, reducing to a single base type."
-  (reduce #'common-type types))
+  "Apply `common-base-type' to all elements in a list, reducing to a single base type."
+  (reduce #'common-base-type types))
 
 ;;;
 
@@ -193,7 +198,7 @@ new instance of CLASSNAME in place and return that."
 
 (defmacro parse-simple (place value)
   "Pushes the base type of VALUE onto the sequence PLACE."
-  `(unless (typep ,place 'object-item)
+  `(unless (typep ,place 'xml-object)
      (pushnew (base-type ,value) ,place)))
 
 (defmacro parse-complex (place classname source)
@@ -281,7 +286,7 @@ as an ECL comment describing those types."
         (format s " ~A" comment))
       (format s "~%"))))
 
-(defmethod as-ecl-field-def ((obj object-item) name attributep)
+(defmethod as-ecl-field-def ((obj xml-object) name attributep)
   (with-output-to-string (s)
     (format s "~4T~A ~A ~A" (as-dataset-type name) (as-ecl-field-name name) (as-ecl-xpath name attributep))
     (format s ";~%")))
@@ -295,7 +300,7 @@ as an ECL comment describing those types."
   (declare (ignore obj name))
   "")
 
-(defmethod as-ecl-record-def ((obj object-item) name)
+(defmethod as-ecl-record-def ((obj xml-object) name)
   (let* ((result-str "")
          (my-str (with-output-to-string (s)
                    (register-layout-subname name)
@@ -320,7 +325,7 @@ as an ECL comment describing those types."
 (defun as-ecl-dataset-example (toplevel-obj toplevel-name toplevel-xpath)
   "Create an ECL comment containing an example DATASET() invocation."
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
-         (noroot-opt (if (and (eql (type-of child-obj) 'object-item)
+         (noroot-opt (if (and (eql (type-of child-obj) 'xml-object)
                               (> (max-visit-count child-obj) 1)) ", NOROOT" "")))
     (with-output-to-string (s)
       (format s "// ds := DATASET('~~data::~A', ~A, XML('~A'~A));~%~%"
@@ -334,7 +339,7 @@ as an ECL comment describing those types."
 (defgeneric parse-attrs (obj source)
   (:documentation "Parses XML attributes and inserts base data types into OBJ."))
 
-(defmethod parse-attrs ((obj object-item) source)
+(defmethod parse-attrs ((obj xml-object) source)
   "Process XML tag attributes that may appear in the data."
   (labels ((handle-attrs (ns local-name qualified-name value explicitp)
              (declare (ignore ns))
@@ -354,7 +359,7 @@ as an ECL comment describing those types."
                    ((eql event :end-document)
                     (return-from parse))
                    ((eql event :start-element)
-                    (return-from parse (parse-obj (make-instance 'object-item) source)))
+                    (return-from parse (parse-obj (make-instance 'xml-object) source)))
                    ((member event '(:start-document))
                     (fxml.klacks:consume source))
                    ((member event '(:start-document :dtd :comment))
@@ -363,7 +368,7 @@ as an ECL comment describing those types."
                    (t
                     (error "xml2ecl: Unknown event at toplevel: (~A)" event))))))
 
-(defmethod parse-obj ((obj object-item) source)
+(defmethod parse-obj ((obj xml-object) source)
   (loop named parse
         do (multiple-value-bind (event chars name) (fxml.klacks:consume source)
              (cond ((null event)
@@ -372,7 +377,7 @@ as an ECL comment describing those types."
                     (reset-children-visits obj)
                     (return-from parse obj))
                    ((eql event :start-element)
-                    (parse-complex (gethash name (children obj)) 'object-item source))
+                    (parse-complex (gethash name (children obj)) 'xml-object source))
                    ((eql event :end-element)
                     (reset-children-visits obj)
                     (return-from parse obj))
@@ -395,7 +400,7 @@ just a single attribute; those can be 'promoted' to a scalar and the child datas
 (defmethod fixup ((obj t))
   obj)
 
-(defmethod fixup ((obj object-item))
+(defmethod fixup ((obj xml-object))
   (loop for name being the hash-keys of (children obj)
           using (hash-value child)
         do (if (single-inner-text-p child)
@@ -474,7 +479,7 @@ be the 'root' object."
           do (multiple-value-bind (child-name child-obj) (first-hash-table-kv (children top-obj))
                (if (and (zerop (hash-table-count (attrs top-obj)))
                         (= (hash-table-count (children top-obj)) 1)
-                        (eql (type-of child-obj) 'object-item))
+                        (eql (type-of child-obj) 'xml-object))
                    (setf top-obj child-obj
                          top-xpath (with-output-to-string (s)
                                      (when top-xpath
