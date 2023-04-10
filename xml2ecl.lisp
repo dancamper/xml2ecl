@@ -103,6 +103,109 @@ replacement characters down to a single occurrence."
 
 ;;;
 
+(defun base-type (value)
+  "Determine the basic internal data type of VALUE."
+  (let ((value-str (format nil "~A" value))
+        (found-type nil))
+    (cond ((string= value-str "")
+           (setf found-type 'default-string))
+          ((member (string-downcase value-str) '("true" "false") :test #'string=)
+           (setf found-type 'boolean))
+          (t
+           (loop named char-walker
+                 for c across value-str
+                 with pos = 0
+                 with decimal-char-found-p = nil
+                 do (progn
+                      (cond ((and (eql c #\-) (zerop pos))
+                             (setf found-type (common-type 'neg-number found-type)))
+                            ((and (eql c #\+) (zerop pos))
+                             (setf found-type (common-type 'pos-number found-type)))
+                            ((digit-char-p c)
+                             (setf found-type (common-type 'pos-number found-type)))
+                            ((and (eql c #\.) (not decimal-char-found-p))
+                             (setf decimal-char-found-p t
+                                   found-type (common-type 'float found-type)))
+                            (t
+                             (setf found-type 'default-string)))
+                      (incf pos)
+                      (when (eql found-type 'default-string)
+                        (return-from char-walker))))))
+    found-type))
+
+(defun common-type (new-type old-type)
+  "Given two internal data types, return an internal type that can encompass both."
+  (let ((args (list new-type old-type)))
+    (cond ((not old-type)
+           new-type)
+          ((not new-type)
+           old-type)
+          ((eql new-type old-type)
+           new-type)
+          ((member 'default-string args)
+           'default-string)
+          ((member 'string args)
+           'string)
+          ((and (member 'neg-number args)
+                (member 'pos-number args))
+           'neg-number)
+          ((and (intersection '(neg-number pos-number) args)
+                (member 'float args))
+           'float)
+          (t
+           'string))))
+
+(defun reduce-base-type (types)
+  "Apply `common-type` to all elements in a list, reducing to a single base type."
+  (reduce #'common-type types))
+
+;;;
+
+(defun first-hash-table-key (hash-table)
+  (loop for k being the hash-keys of hash-table
+        do (return k)))
+
+(defun first-hash-table-value (hash-table)
+  (loop for v being the hash-values of hash-table
+        do (return v)))
+
+(defun first-hash-table-kv (hash-table)
+  (loop for k being the hash-keys of hash-table
+          using (hash-value v)
+        do (return (values k v))))
+
+;;;
+
+(defmacro reuse-object (place classname)
+  "Return object found in PLACE if it is an instance of CLASSNAME, or create a
+new instance of CLASSNAME in place and return that."
+  `(progn
+     (cond ((or (null ,place) (not ,place) (eql ,place 'null-value))
+            (setf ,place (make-instance ,classname)))
+           ((and (consp ,place) (eql (car ,place) 'null-value))
+            (setf ,place (make-instance ,classname)))
+           ((not (typep ,place ,classname))
+            (error "xml2ecl: Mismatching object types; expected ~A but found ~A"
+                   ,classname
+                   (type-of ,place))))
+     (incf (visit-count ,place))
+     ,place))
+
+(defmacro parse-simple (place value)
+  "Pushes the base type of VALUE onto the sequence PLACE."
+  `(unless (typep ,place 'object-item)
+     (pushnew (base-type ,value) ,place)))
+
+(defmacro parse-complex (place classname source)
+  "Reuse object in PLACE if possible, or create a new instance of CLASSNAME,
+then kick off a new depth of parsing with the result."
+  `(progn
+     (reuse-object ,place ,classname)
+     (parse-attrs ,place ,source)
+     (parse-obj ,place ,source)))
+
+;;;
+
 (defun as-layout-name (name)
   "Construct a unique string that is a suitable ECL RECORD attribute, based on NAME."
   (let* ((legal-name (legal-layout-subname name))
@@ -165,64 +268,6 @@ as an ECL comment describing those types."
 
 ;;;
 
-(defun base-type (value)
-  "Determine the basic internal data type of VALUE."
-  (let ((value-str (format nil "~A" value))
-        (found-type nil))
-    (cond ((string= value-str "")
-           (setf found-type 'default-string))
-          ((member (string-downcase value-str) '("true" "false") :test #'string=)
-           (setf found-type 'boolean))
-          (t
-           (loop named char-walker
-                 for c across value-str
-                 with pos = 0
-                 with decimal-char-found-p = nil
-                 do (progn
-                      (cond ((and (eql c #\-) (zerop pos))
-                             (setf found-type (common-type 'neg-number found-type)))
-                            ((and (eql c #\+) (zerop pos))
-                             (setf found-type (common-type 'pos-number found-type)))
-                            ((digit-char-p c)
-                             (setf found-type (common-type 'pos-number found-type)))
-                            ((and (eql c #\.) (not decimal-char-found-p))
-                             (setf decimal-char-found-p t
-                                   found-type (common-type 'float found-type)))
-                            (t
-                             (setf found-type 'default-string)))
-                      (incf pos)
-                      (when (eql found-type 'default-string)
-                        (return-from char-walker))))))
-    found-type))
-
-(defun common-type (new-type old-type)
-  "Given two internal data types, return an internal type that can encompass both."
-  (let ((args (list new-type old-type)))
-    (cond ((not old-type)
-           new-type)
-          ((not new-type)
-           old-type)
-          ((eql new-type old-type)
-           new-type)
-          ((member 'default-string args)
-           'default-string)
-          ((member 'string args)
-           'string)
-          ((and (member 'neg-number args)
-                (member 'pos-number args))
-           'neg-number)
-          ((and (intersection '(neg-number pos-number) args)
-                (member 'float args))
-           'float)
-          (t
-           'string))))
-
-(defun reduce-base-type (types)
-  "Apply `common-type` to all elements in a list, reducing to a single base type."
-  (reduce #'common-type types))
-
-;;;
-
 (defgeneric as-ecl-field-def (value-obj name attributep)
   (:documentation "Create an ECL field definition from an object or array class."))
 
@@ -272,19 +317,6 @@ as an ECL comment describing those types."
 
 ;;;
 
-(defun first-hash-table-key (hash-table)
-  (loop for k being the hash-keys of hash-table
-        do (return k)))
-
-(defun first-hash-table-value (hash-table)
-  (loop for v being the hash-values of hash-table
-        do (return v)))
-
-(defun first-hash-table-kv (hash-table)
-  (loop for k being the hash-keys of hash-table
-          using (hash-value v)
-        do (return (values k v))))
-
 (defun as-ecl-dataset-example (toplevel-obj toplevel-name toplevel-xpath)
   "Create an ECL comment containing an example DATASET() invocation."
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
@@ -296,36 +328,6 @@ as an ECL comment describing those types."
               (as-layout-name toplevel-name)
               toplevel-xpath
               noroot-opt))))
-
-;;;
-
-(defmacro reuse-object (place classname)
-  "Return object found in PLACE if it is an instance of CLASSNAME, or create a
-new instance of CLASSNAME in place and return that."
-  `(progn
-     (cond ((or (null ,place) (not ,place) (eql ,place 'null-value))
-            (setf ,place (make-instance ,classname)))
-           ((and (consp ,place) (eql (car ,place) 'null-value))
-            (setf ,place (make-instance ,classname)))
-           ((not (typep ,place ,classname))
-            (error "xml2ecl: Mismatching object types; expected ~A but found ~A"
-                   ,classname
-                   (type-of ,place))))
-     (incf (visit-count ,place))
-     ,place))
-
-(defmacro parse-simple (place value)
-  "Pushes the base type of VALUE onto the sequence PLACE."
-  `(unless (typep ,place 'object-item)
-     (pushnew (base-type ,value) ,place)))
-
-(defmacro parse-complex (place classname source)
-  "Reuse object in PLACE if possible, or create a new instance of CLASSNAME,
-then kick off a new depth of parsing with the result."
-  `(progn
-     (reuse-object ,place ,classname)
-     (parse-attrs ,place ,source)
-     (parse-obj ,place ,source)))
 
 ;;;
 
