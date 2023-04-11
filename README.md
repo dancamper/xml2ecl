@@ -14,6 +14,8 @@ xml2ecl is a command-line tool that examines XML data and deduces the
 ECL RECORD definitions necessary to parse it.  The resulting ECL definitions are returned
 via standard out, suitable for piping or pasting into your favorite IDE.
 
+See [json2ecl](https://github.com/dancamper/json2ecl) for a JSON version of this functionality.
+
 ## ECL Record Definitions ???
 
 [HPCC Systems](https://hpccsystems.com) is a big data system that is programmed using a
