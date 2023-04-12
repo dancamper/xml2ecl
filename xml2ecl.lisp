@@ -166,18 +166,18 @@ replacement characters down to a single occurrence."
 
 ;;;
 
-(defun first-hash-table-key (hash-table)
-  (loop for k being the hash-keys of hash-table
-        do (return k)))
-
-(defun first-hash-table-value (hash-table)
-  (loop for v being the hash-values of hash-table
-        do (return v)))
-
 (defun first-hash-table-kv (hash-table)
   (loop for k being the hash-keys of hash-table
           using (hash-value v)
         do (return (values k v))))
+
+(defun first-hash-table-key (hash-table)
+  (multiple-value-bind (k v) (first-hash-table-kv hash-table)
+    k))
+
+(defun first-hash-table-value (hash-table)
+  (multiple-value-bind (k v) (first-hash-table-kv hash-table)
+    v))
 
 ;;;
 
