@@ -331,7 +331,7 @@ as an ECL comment describing those types."
       (format s "// ds := DATASET('~~data::~A', ~A, XML('~A'~A));~%~%"
               (string-downcase toplevel-name)
               (as-layout-name toplevel-name)
-              toplevel-xpath
+              (or toplevel-xpath "")
               noroot-opt))))
 
 ;;;
