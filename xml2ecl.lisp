@@ -425,36 +425,19 @@ S should be the symbol of the stream that is created and will be referenced in t
            (let ((,s (make-concatenated-stream ,begin-tag-stream ,wrapped-stream ,end-tag-stream)))
              ,@body))))))
 
-(defun skip-xml-encoding-in-stream (xml-stream)
-  "Scan for XML encoding directives and skip past them.  This is necessary because we 'wrap'
-the XML file or stream in another XML tag so as to correctly parse invalid XML that contains
-no root tag (this kind of no-root data is supported by ECL, so we have to support it as well)."
+(defun normalize-input-stream (xml-stream)
+  "Layer a flexi-streams implementation on top of the stream and ensure that the element type
+is correct.."
   (let ((local-stream (flexi-streams:make-flexi-stream xml-stream)))
     (setf (flexi-streams:flexi-stream-element-type local-stream) '(unsigned-byte 8))
-    (flet ((s-peek (s)
-             (flexi-streams:peek-byte s nil nil nil))
-           (s-read (s)
-             (read-byte s nil nil)))
-      (when (char= (code-char (s-peek local-stream)) #\<)
-        (s-read local-stream)
-        (if (char= (code-char (s-peek local-stream)) #\?)
-            (progn
-              (s-read local-stream)
-              (loop named scan
-                    for ch = (code-char (s-read local-stream))
-                    while ch do (when (and (char= ch #\?)
-                                           (char= (code-char (s-peek local-stream)) #\>))
-                                  (s-read local-stream)
-                                  (return-from scan))))
-            (file-position local-stream 0))))
     local-stream))
 
 (defun process-stream (input obj)
   "Given a stream, wrap it in our own XML tags and then process it, stuffing the result
 into OBJ."
   (let ((wrapper-tag *wrapper-xml-tag*))
-    (with-wrapped-xml-stream (input-stream wrapper-tag (skip-xml-encoding-in-stream input))
-      (fxml.klacks:with-open-source (source (fxml:make-source input-stream))
+    (with-wrapped-xml-stream (wrapped-stream wrapper-tag (normalize-input-stream input))
+      (fxml.klacks:with-open-source (source (fxml:make-source wrapped-stream))
         (handler-bind ((fxml:well-formedness-violation #'continue))
           (setf obj (parse-obj obj source))))))
   obj)
@@ -471,16 +454,20 @@ into OBJ."
 
 ;;;
 
-(defun unwrap-parsed-object (obj)
+(defmethod unwrap-parsed-object ((obj t))
+  (values obj nil))
+
+(defmethod unwrap-parsed-object ((obj xml-object))
   "After processing, we need to find the first child result object that makes sense to
 be the 'root' object."
   (let ((top-obj (or (gethash *wrapper-xml-tag* (children obj)) obj))
         (top-xpath nil))
     (loop named unwrap
+          while (eql (type-of top-obj) 'xml-object)
           do (multiple-value-bind (child-name child-obj) (first-hash-table-kv (children top-obj))
-               (if (and (zerop (hash-table-count (attrs top-obj)))
-                        (= (hash-table-count (children top-obj)) 1)
-                        (eql (type-of child-obj) 'xml-object))
+               (if (and (= (hash-table-count (children top-obj)) 1)
+                        (eql (type-of child-obj) 'xml-object)
+                        (zerop (hash-table-count (attrs top-obj))))
                    (setf top-obj child-obj
                          top-xpath (with-output-to-string (s)
                                      (when top-xpath

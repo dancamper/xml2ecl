@@ -212,10 +212,13 @@ $ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteg
 </SOAP-ENV:Envelope>
 ```
 
-This can be piped to xml2ecl to derive a RECORD structure that will parse the reply:
+xml2ecl does not properly handle the XML encoding tag at the beginning, but you can
+remove it via sed and pipe the result to xml2ecl for processing:
 
 ```none
-$ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11' | xml2ecl 
+$ curl -s 'https://www.crcind.com/csp/samples/SOAP.Demo.cls?soap_method=AddInteger&Arg1=31&Arg2=11' \
+    | sed -e 's/<\?.*\?>//' \
+    | xml2ecl 
 
 ADDINTEGERRESPONSE_LAYOUT := RECORD
     UTF8 f_xmlns {XPATH('@xmlns')};
@@ -253,3 +256,4 @@ ds := HTTPCALL
 # Limitations
 
 * Namespace handling has not been fully tested.
+* XML encoding tags (e.g. `<?xml version="1.0" encoding="UTF-8" ?>` are not handled properly.

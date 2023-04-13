@@ -46,8 +46,8 @@
      . "xml2ecl *.xml")
     ("Process XML data coming from a file via stdin:"
      . "cat foo.xml | xml2ecl")
-    ("Process a SOAP result:"
-     . "curl -s 'https://www.example.com/SOAP.Demo.cls' | xml2ecl")))
+    ("Process a SOAP result (note the sed filter):"
+     . "curl -s 'https://www.example.com/SOAP.Demo.cls' | sed -e 's/<\?.*\?>//' | xml2ecl")))
 
 (adopt:define-string *help-text*
   "xml2ecl examines XML data and deduces the ECL RECORD definitions necessary to parse it. ~
@@ -96,6 +96,12 @@ Home: https://github.com/dancamper/xml2ecl")
    (lambda (c s)
      (format s "missing file '~A'" (slot-value c 'path)))))
 
+(define-condition unknown-input (user-error)
+  ((thing :initarg :thing))
+  (:report
+   (lambda (c s)
+     (format s "unknown input '~A'" (slot-value c 'thing)))))
+
 ;;;
 
 (defmacro exit-on-ctrl-c (&body body)
@@ -121,7 +127,9 @@ Home: https://github.com/dancamper/xml2ecl")
         (adopt:print-error-and-exit (format nil "Unknown string type '~A'" *ecl-string-type*)))
       ;; Parse files or standard input
       (loop for input in args
-            do (let ((one-item (or (uiop:probe-file* input) input)))
+            do (let ((one-item (cond ((stringp input) (uiop:probe-file* input))
+                                     ((streamp input) input)
+                                     (t (error 'unknown-input :thing input)))))
                  (setf result-obj (process-file-or-stream one-item result-obj))))
       ;; Fixup XML child objects
       (setf result-obj (fixup result-obj))
