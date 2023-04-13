@@ -430,6 +430,7 @@ S should be the symbol of the stream that is created and will be referenced in t
 the XML file or stream in another XML tag so as to correctly parse invalid XML that contains
 no root tag (this kind of no-root data is supported by ECL, so we have to support it as well)."
   (let ((local-stream (flexi-streams:make-flexi-stream xml-stream)))
+    (setf (flexi-streams:flexi-stream-element-type local-stream) '(unsigned-byte 8))
     (flet ((s-peek (s)
              (flexi-streams:peek-byte s nil nil nil))
            (s-read (s)
@@ -445,14 +446,14 @@ no root tag (this kind of no-root data is supported by ECL, so we have to suppor
                                            (char= (code-char (s-peek local-stream)) #\>))
                                   (s-read local-stream)
                                   (return-from scan))))
-            (file-position local-stream 0))))))
+            (file-position local-stream 0))))
+    local-stream))
 
 (defun process-stream (input obj)
   "Given a stream, wrap it in our own XML tags and then process it, stuffing the result
 into OBJ."
   (let ((wrapper-tag *wrapper-xml-tag*))
-    (skip-xml-encoding-in-stream input)
-    (with-wrapped-xml-stream (input-stream wrapper-tag input)
+    (with-wrapped-xml-stream (input-stream wrapper-tag (skip-xml-encoding-in-stream input))
       (fxml.klacks:with-open-source (source (fxml:make-source input-stream))
         (handler-bind ((fxml:well-formedness-violation #'continue))
           (setf obj (parse-obj obj source))))))
