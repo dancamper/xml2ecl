@@ -25,8 +25,8 @@ an XML scope.")
 ;;;
 
 (defclass base-object ()
-  ((visit-count :accessor visit-count :initform 0)
-   (max-visit-count :accessor max-visit-count :initform 0)))
+  ((visit-count :accessor visit-count :initform 0 :type fixnum)
+   (max-visit-count :accessor max-visit-count :initform 0 :type fixnum)))
 
 (defclass xml-object (base-object)
   ((children :accessor children :initform (make-hash-table :test 'equalp :size 25))
@@ -65,12 +65,14 @@ an XML scope.")
 
 (defun is-ecl-keyword-p (name)
   "Test if NAME (which should be a lowercase string) is an ECL keyword."
+  (declare (type (string) name))
   (member name *ecl-keywords* :test 'equalp))
 
 (defun remove-illegal-chars (name &key (replacement-char #\_) (keep-char-list '()))
   "Return a copy of NAME with characters illegal for ECL attribute names
 substituted with a replacment character, then reducing runs of those
 replacement characters down to a single occurrence."
+  (declare (type (string) name))
   (let* ((keep-chars (reduce 'cons keep-char-list
                              :initial-value (list #\_ replacement-char)
                              :from-end t))
@@ -89,6 +91,7 @@ replacement characters down to a single occurrence."
 
 (defun apply-prefix (name prefix-char)
   "Conditionally append  prefix PREFIX-CHAR to NAME."
+  (declare (type (string) name))
   (format nil "~A~A~A"
           prefix-char
           (if (char= (elt name 0) #\_) "" "_")
@@ -96,6 +99,7 @@ replacement characters down to a single occurrence."
 
 (defun legal-layout-subname (name)
   "Return a copy of NAME that can be used within a RECORD name."
+  (declare (type (string) name))
   (let ((initial (string-upcase (remove-illegal-chars name))))
     (if (not (alpha-char-p (elt initial 0)))
         (apply-prefix initial "F")
@@ -103,6 +107,7 @@ replacement characters down to a single occurrence."
 
 (defun register-layout-subname (name)
   "Push layout subname NAME to a special variable list so we can track usage."
+  (declare (type (string) name))
   (let ((legal-name (legal-layout-subname name)))
     (push legal-name *layout-names*)))
 
@@ -213,6 +218,7 @@ then kick off a new depth of parsing with the result."
 
 (defun as-layout-name (name)
   "Construct a unique string that is a suitable ECL RECORD attribute, based on NAME."
+  (declare (type (string) name))
   (let* ((legal-name (legal-layout-subname name))
          (found-count (count-if #'(lambda (x) (equalp x legal-name)) *layout-names*))
          (interstitial (if (< found-count 2) "" (format nil "_~3,'0D" found-count))))
@@ -220,6 +226,7 @@ then kick off a new depth of parsing with the result."
 
 (defun as-ecl-field-name (name)
   "Return a copy of NAME that is suitable to be used as an ECL attribute."
+  (declare (type (string) name))
   (let ((lowername (string-downcase name)))
     (if (string= lowername *inner-text-tag*)
         lowername
@@ -231,6 +238,7 @@ then kick off a new depth of parsing with the result."
 
 (defun as-ecl-xpath (name attributep)
   "Construct an ECL XPATH directive for NAME (typically an as-is XML tag)."
+  (declare (type (string) name))
   (if (string= name *inner-text-tag*)
       "{XPATH('')}"
       (let ((cleaned-name (remove-illegal-chars name :replacement-char #\* :keep-char-list '(#\-)))
@@ -239,6 +247,7 @@ then kick off a new depth of parsing with the result."
 
 (defun as-dataset-type (name)
   "Construct an ECL DATASET datatype, given NAME."
+  (declare (type (string) name))
   (format nil "DATASET(~A)" (as-layout-name name)))
 
 (defun as-ecl-type (value-type)
@@ -277,6 +286,8 @@ as an ECL comment describing those types."
   (:documentation "Create an ECL field definition from an object or array class."))
 
 (defmethod as-ecl-field-def ((value-obj t) name attributep)
+  (declare (type (string) name))
+  (declare (type (boolean) attributep))
   (let ((ecl-type (as-ecl-type value-obj))
         (xpath (as-ecl-xpath name attributep))
         (comment (as-value-comment value-obj)))
@@ -287,6 +298,8 @@ as an ECL comment describing those types."
       (format s "~%"))))
 
 (defmethod as-ecl-field-def ((obj xml-object) name attributep)
+  (declare (type (string) name))
+  (declare (type (boolean) attributep))
   (with-output-to-string (s)
     (format s "~4T~A ~A ~A" (as-dataset-type name) (as-ecl-field-name name) (as-ecl-xpath name attributep))
     (format s ";~%")))
@@ -301,6 +314,7 @@ as an ECL comment describing those types."
   "")
 
 (defmethod as-ecl-record-def ((obj xml-object) name)
+  (declare (type (string) name))
   (let* ((result-str "")
          (my-str (with-output-to-string (s)
                    (register-layout-subname name)
@@ -324,6 +338,7 @@ as an ECL comment describing those types."
 
 (defun as-ecl-dataset-example (toplevel-obj toplevel-name toplevel-xpath)
   "Create an ECL comment containing an example DATASET() invocation."
+  (declare (type (string) toplevel-name toplevel-xpath))
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
          (noroot-opt (if (and (eql (type-of child-obj) 'xml-object)
                               (> (max-visit-count child-obj) 1)) ", NOROOT" "")))
@@ -354,6 +369,7 @@ as an ECL comment describing those types."
 (defmethod parse-obj ((obj t) source)
   (loop named parse
         do (let ((event (fxml.klacks:peek source)))
+             (declare (type (or keyword null) event))
              (cond ((null event)
                     (return-from parse))
                    ((eql event :end-document)
@@ -371,6 +387,8 @@ as an ECL comment describing those types."
 (defmethod parse-obj ((obj xml-object) source)
   (loop named parse
         do (multiple-value-bind (event chars name) (fxml.klacks:consume source)
+             (declare (type (or keyword null) event))
+             (declare (type (or string null) chars name))
              (cond ((null event)
                     (return-from parse obj))
                    ((eql event :end-document)
