@@ -3,6 +3,7 @@
 (in-package #:xml2ecl)
 
 ;; (declaim (optimize (debug 3)))
+(declaim (optimize (speed 3) (safety 1) (space 2)))
 
 ;;;
 
@@ -145,22 +146,22 @@ replacement characters down to a single occurrence."
 
 (defun common-base-type (new-type old-type)
   "Given two internal data types, return an internal type that can encompass both."
-  (let ((args (list new-type old-type)))
+  (flet ((is-arg-p (x)
+           (or (eql x new-type) (eql x old-type))))
     (cond ((not old-type)
            new-type)
           ((not new-type)
            old-type)
           ((eql new-type old-type)
            new-type)
-          ((member 'default-string args)
+          ((is-arg-p 'default-string)
            'default-string)
-          ((member 'string args)
+          ((is-arg-p 'string)
            'string)
-          ((and (member 'neg-number args)
-                (member 'pos-number args))
+          ((and (is-arg-p 'neg-number) (is-arg-p 'pos-number))
            'neg-number)
-          ((and (intersection '(neg-number pos-number) args)
-                (member 'float args))
+          ((and (or (is-arg-p 'neg-number) (is-arg-p 'pos-number))
+                (is-arg-p 'float))
            'float)
           (t
            'string))))
@@ -338,7 +339,8 @@ as an ECL comment describing those types."
 
 (defun as-ecl-dataset-example (toplevel-obj toplevel-name toplevel-xpath)
   "Create an ECL comment containing an example DATASET() invocation."
-  (declare (type (string) toplevel-name toplevel-xpath))
+  (declare (type (string) toplevel-name))
+  (declare (type (or string null) toplevel-xpath))
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
          (noroot-opt (if (and (eql (type-of child-obj) 'xml-object)
                               (> (max-visit-count child-obj) 1)) ", NOROOT" "")))
@@ -358,6 +360,7 @@ as an ECL comment describing those types."
   "Process XML tag attributes that may appear in the data."
   (labels ((handle-attrs (ns local-name qualified-name value explicitp)
              (declare (ignore ns))
+             (declare (type (or string null) local-name qualified-name))
              (let ((name (or local-name qualified-name)))
                (when explicitp
                  (parse-simple (gethash name (attrs obj)) value)))))
