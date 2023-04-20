@@ -125,7 +125,7 @@ Home: https://github.com/dancamper/xml2ecl")
                              (format nil "~A" (gensym "toplevel_"))))
           (result-obj nil))
       ;; Make sure the string type is recognized
-      (unless (member *ecl-string-type* '("UTF8" "STRING" "VARSTRING") :test #'string=)
+      (unless (member *ecl-string-type* '("UTF8" "STRING" "VARSTRING") :test #'string-equal)
         (adopt:print-error-and-exit (format nil "Unknown string type '~A'" *ecl-string-type*)))
       ;; Parse files or standard input
       (loop for input in args

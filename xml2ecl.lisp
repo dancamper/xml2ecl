@@ -3,7 +3,7 @@
 (in-package #:xml2ecl)
 
 ;; (declaim (optimize (debug 3)))
-(declaim (optimize (speed 3) (safety 1) (space 2)))
+(declaim (optimize (speed 3) (safety 0) (space 2)))
 
 ;;;
 
@@ -116,47 +116,48 @@ replacement characters down to a single occurrence."
 
 (defun base-type (value)
   "Determine the basic internal data type of VALUE."
-  (let ((value-str (format nil "~A" value))
-        (found-type nil))
-    (cond ((string-equal value-str "")
-           (setf found-type 'default-string))
-          ((or (string-equal value-str "true") (string-equal value-str "false"))
-           (setf found-type 'boolean))
-          (t
-           (loop named char-walker
-                 for c across value-str
-                 with pos fixnum = 0
-                 with decimal-char-found-p = nil
-                 do (progn
-                      (cond ((and (eql c #\-) (zerop pos))
-                             (setf found-type 'neg-number))
-                            ((and (eql c #\+) (zerop pos))
-                             (setf found-type 'pos-number))
-                            ((digit-char-p c)
-                             (setf found-type (if found-type
-                                                  (common-base-type 'pos-number found-type)
-                                                  'pos-number)))
-                            ((and (eql c #\.) (not decimal-char-found-p))
-                             (setf decimal-char-found-p t
-                                   found-type (if found-type
-                                                  (common-base-type 'float found-type)
-                                                  'float)))
-                            (t
-                             (setf found-type 'default-string)))
-                      (incf pos)
-                      (when (eql found-type 'default-string)
-                        (return-from char-walker))))))
-    found-type))
+  (if (not value)
+      'default-string
+      (let ((value-str (if (stringp value) value (format nil "~A" value))))
+        (declare (type simple-string value-str))
+        (cond ((string= value-str "")
+               'default-string)
+              ((or (string-equal value-str "true") (string-equal value-str "false"))
+               'boolean)
+              (t
+               (loop named char-walker
+                     for c across value-str
+                     with pos fixnum = 0
+                     with decimal-char-found-p = nil
+                     with found-type = nil
+                     do (progn
+                          (cond ((and (eql c #\-) (zerop pos))
+                                 (setf found-type 'neg-number))
+                                ((and (eql c #\+) (zerop pos))
+                                 (setf found-type 'pos-number))
+                                ((digit-char-p c)
+                                 (setf found-type (if (plusp pos)
+                                                      (common-base-type 'pos-number found-type)
+                                                      'pos-number)))
+                                ((and (eql c #\.) (not decimal-char-found-p))
+                                 (setf decimal-char-found-p t
+                                       found-type (if (plusp pos)
+                                                      (common-base-type 'float found-type)
+                                                      'float)))
+                                (t
+                                 (return-from char-walker 'default-string)))
+                          (incf pos)
+                          (when (eql found-type 'default-string)
+                            (return-from char-walker found-type)))
+                     finally (return-from char-walker found-type)))))))
 
 (defun common-base-type (new-type old-type)
-  "Given two internal data types, return an internal type that can encompass both."
+  "Given two internal data types, return an internal type that can encompass both.
+Neither of the arguments can be null."
+  (declare (type (and symbol (not null)) new-type old-type))
   (flet ((is-arg-p (x)
            (or (eql x new-type) (eql x old-type))))
-    (cond ((not old-type)
-           new-type)
-          ((not new-type)
-           old-type)
-          ((equal new-type old-type)
+    (cond ((equal new-type old-type)
            new-type)
           ((is-arg-p 'default-string)
            'default-string)
