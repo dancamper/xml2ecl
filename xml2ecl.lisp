@@ -16,9 +16,9 @@ previously-defined names.")
   "The ECL data type to be used for XML string types.  Can be overridden
 with an option.")
 
-(defparameter *wrapper-xml-tag* "wrapper")
+(defparameter *wrapper-xml-tag* (the string "wrapper"))
 
-(defparameter *inner-text-tag* "_inner_value"
+(defparameter *inner-text-tag* (the string "_inner_value")
   "The ECL field name to use for value found within an XML tag when that
 tag has attributes, or in cases where a simple tag is repeated within
 an XML scope.")
@@ -37,7 +37,7 @@ an XML scope.")
   )
 
 (defmethod reset-visits ((obj base-object))
-  (setf (max-visit-count obj) (max (visit-count obj) (max-visit-count obj))
+  (setf (max-visit-count obj) (max (the fixnum (visit-count obj)) (the fixnum (max-visit-count obj)))
         (visit-count obj) 0))
 
 (defmethod reset-children-visits ((obj t))
@@ -59,7 +59,7 @@ an XML scope.")
   nil)
 
 (defmethod single-inner-text-p ((obj xml-object))
-  (and (= (max-visit-count obj) 1)
+  (and (= (the fixnum (max-visit-count obj)) 1)
        (only-inner-text-p obj)))
 
 ;;;
@@ -79,7 +79,7 @@ replacement characters down to a single occurrence."
                              :from-end t))
          (initial (substitute-if replacement-char
                                  (lambda (c) (not (or (alphanumericp c) (member c keep-chars))))
-                                 (or name ""))))
+                                 name)))
     (with-output-to-string (s)
       (loop for c across initial
             with skip = nil
@@ -92,7 +92,7 @@ replacement characters down to a single occurrence."
 
 (defun apply-prefix (name prefix-char)
   "Conditionally append  prefix PREFIX-CHAR to NAME."
-  (declare (type (string) name))
+  (declare (type (simple-string) name))
   (format nil "~A~A~A"
           prefix-char
           (if (char= (elt name 0) #\_) "" "_")
@@ -118,25 +118,29 @@ replacement characters down to a single occurrence."
   "Determine the basic internal data type of VALUE."
   (let ((value-str (format nil "~A" value))
         (found-type nil))
-    (cond ((string= value-str "")
+    (cond ((string-equal value-str "")
            (setf found-type 'default-string))
-          ((member (string-downcase value-str) '("true" "false") :test #'string=)
+          ((or (string-equal value-str "true") (string-equal value-str "false"))
            (setf found-type 'boolean))
           (t
            (loop named char-walker
                  for c across value-str
-                 with pos = 0
+                 with pos fixnum = 0
                  with decimal-char-found-p = nil
                  do (progn
                       (cond ((and (eql c #\-) (zerop pos))
-                             (setf found-type (common-base-type 'neg-number found-type)))
+                             (setf found-type 'neg-number))
                             ((and (eql c #\+) (zerop pos))
-                             (setf found-type (common-base-type 'pos-number found-type)))
+                             (setf found-type 'pos-number))
                             ((digit-char-p c)
-                             (setf found-type (common-base-type 'pos-number found-type)))
+                             (setf found-type (if found-type
+                                                  (common-base-type 'pos-number found-type)
+                                                  'pos-number)))
                             ((and (eql c #\.) (not decimal-char-found-p))
                              (setf decimal-char-found-p t
-                                   found-type (common-base-type 'float found-type)))
+                                   found-type (if found-type
+                                                  (common-base-type 'float found-type)
+                                                  'float)))
                             (t
                              (setf found-type 'default-string)))
                       (incf pos)
@@ -152,7 +156,7 @@ replacement characters down to a single occurrence."
            new-type)
           ((not new-type)
            old-type)
-          ((eql new-type old-type)
+          ((equal new-type old-type)
            new-type)
           ((is-arg-p 'default-string)
            'default-string)
@@ -178,11 +182,11 @@ replacement characters down to a single occurrence."
         do (return (values k v))))
 
 (defun first-hash-table-key (hash-table)
-  (multiple-value-bind (k v) (first-hash-table-kv hash-table)
-    k))
+  (first-hash-table-kv hash-table))
 
 (defun first-hash-table-value (hash-table)
   (multiple-value-bind (k v) (first-hash-table-kv hash-table)
+    (declare (ignore k))
     v))
 
 ;;;
@@ -199,13 +203,13 @@ new instance of CLASSNAME in place and return that."
             (error "xml2ecl: Mismatching object types; expected ~A but found ~A"
                    ,classname
                    (type-of ,place))))
-     (incf (visit-count ,place))
+     (incf (the fixnum (visit-count ,place)))
      ,place))
 
 (defmacro parse-simple (place value)
   "Pushes the base type of VALUE onto the sequence PLACE."
   `(unless (typep ,place 'xml-object)
-     (pushnew (base-type ,value) ,place)))
+     (pushnew (the symbol (base-type ,value)) ,place)))
 
 (defmacro parse-complex (place classname source)
   "Reuse object in PLACE if possible, or create a new instance of CLASSNAME,
@@ -227,9 +231,10 @@ then kick off a new depth of parsing with the result."
 
 (defun as-ecl-field-name (name)
   "Return a copy of NAME that is suitable to be used as an ECL attribute."
-  (declare (type (string) name))
+  (declare (type (and simple-string (not null)) name))
   (let ((lowername (string-downcase name)))
-    (if (string= lowername *inner-text-tag*)
+    (declare (type (and simple-string (not null)) lowername))
+    (if (string-equal lowername *inner-text-tag*)
         lowername
         (let ((no-dashes (remove-illegal-chars lowername)))
           (if (or (not (alpha-char-p (elt no-dashes 0)))
@@ -240,7 +245,7 @@ then kick off a new depth of parsing with the result."
 (defun as-ecl-xpath (name attributep)
   "Construct an ECL XPATH directive for NAME (typically an as-is XML tag)."
   (declare (type (string) name))
-  (if (string= name *inner-text-tag*)
+  (if (string-equal name *inner-text-tag*)
       "{XPATH('')}"
       (let ((cleaned-name (remove-illegal-chars name :replacement-char #\* :keep-char-list '(#\-)))
             (attr-prefix (if attributep "@" "")))
@@ -271,7 +276,7 @@ as an ECL comment describing those types."
              (or (and (= (length value-type) 1)
                       (eql (car value-type) 'null-value))
                  (and (> (length value-type) 1)
-                      (member (as-ecl-type value-type) '(*ecl-string-type* "STRING") :test #'string=))))
+                      (member (as-ecl-type value-type) '(*ecl-string-type* "STRING") :test #'string-equal))))
     (labels ((desc (v)
                (case v
                  (null-value "null")
@@ -328,7 +333,7 @@ as an ECL comment describing those types."
                    (loop for field-name being the hash-keys of (children obj)
                            using (hash-value field-value)
                          do (let ((child-recdef (as-ecl-record-def field-value field-name)))
-                              (when (string/= child-recdef "")
+                              (when (string-not-equal child-recdef "")
                                 (setf result-str (format nil "~A~A" result-str child-recdef)))
                               (format s "~A" (as-ecl-field-def field-value field-name nil))))
                    (format s "END;~%~%")
@@ -343,7 +348,7 @@ as an ECL comment describing those types."
   (declare (type (or string null) toplevel-xpath))
   (let* ((child-obj (first-hash-table-value (children toplevel-obj)))
          (noroot-opt (if (and (eql (type-of child-obj) 'xml-object)
-                              (> (max-visit-count child-obj) 1)) ", NOROOT" "")))
+                              (> (the fixnum (max-visit-count child-obj)) 1)) ", NOROOT" "")))
     (with-output-to-string (s)
       (format s "// ds := DATASET('~~data::~A', ~A, XML('~A'~A));~%~%"
               (string-downcase toplevel-name)
@@ -496,4 +501,53 @@ be the 'root' object."
                                      (format s "~A" child-name)))
                    (return-from unwrap))))
     (values top-obj top-xpath)))
+
+;;;
+
+(defun run-profile-test ()
+  (time
+   (dotimes (n 100)
+     (with-open-stream (*standard-output* (make-broadcast-stream))
+       (run '("/Users/lordgrey/Downloads/XML_data/map_nodes.xml"
+              "/Users/lordgrey/Downloads/XML_data/map_relations.xml"
+              "/Users/lordgrey/Downloads/XML_data/map_ways.xml")))
+     (when (zerop (mod n 10))
+       (format t "~%"))
+     (princ "."))))
+
+(defun profile ()
+  (sb-profile:reset)
+  (sb-profile:profile apply-prefix
+                      as-dataset-type
+                      as-ecl-dataset-example
+                      as-ecl-field-def
+                      as-ecl-field-name
+                      as-ecl-record-def
+                      as-ecl-type
+                      as-ecl-xpath
+                      as-layout-name
+                      as-value-comment
+                      base-type
+                      common-base-type
+                      first-hash-table-key
+                      first-hash-table-kv
+                      first-hash-table-value
+                      fixup
+                      is-ecl-keyword-p
+                      legal-layout-subname
+                      normalize-input-stream
+                      only-inner-text-p
+                      parse-attrs
+                      parse-obj
+                      process-file-or-stream
+                      process-stream
+                      reduce-base-type
+                      register-layout-subname
+                      remove-illegal-chars
+                      reset-children-visits
+                      reset-visits
+                      single-inner-text-p
+                      unwrap-parsed-object)
+  (run-profile-test)
+  (sb-profile:report))
 
