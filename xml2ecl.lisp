@@ -23,6 +23,8 @@ with an option.")
 tag has attributes, or in cases where a simple tag is repeated within
 an XML scope.")
 
+(defparameter *whitespace-chars* '(#\Space #\Tab #\Newline))
+
 ;;;
 
 (defclass base-object ()
@@ -154,10 +156,10 @@ replacement characters down to a single occurrence."
 (defun common-base-type (new-type old-type)
   "Given two internal data types, return an internal type that can encompass both.
 Neither of the arguments can be null."
-  (declare (type (and symbol (not null)) new-type old-type))
+  (declare (type symbol new-type old-type))
   (flet ((is-arg-p (x)
            (or (eql x new-type) (eql x old-type))))
-    (cond ((equal new-type old-type)
+    (cond ((eql new-type old-type)
            new-type)
           ((is-arg-p 'default-string)
            'default-string)
@@ -232,9 +234,9 @@ then kick off a new depth of parsing with the result."
 
 (defun as-ecl-field-name (name)
   "Return a copy of NAME that is suitable to be used as an ECL attribute."
-  (declare (type (and simple-string (not null)) name))
+  (declare (type simple-string name))
   (let ((lowername (string-downcase name)))
-    (declare (type (and simple-string (not null)) lowername))
+    (declare (type simple-string lowername))
     (if (string-equal lowername *inner-text-tag*)
         lowername
         (let ((no-dashes (remove-illegal-chars lowername)))
@@ -365,11 +367,10 @@ as an ECL comment describing those types."
 (defmethod parse-attrs ((obj xml-object) source)
   "Process XML tag attributes that may appear in the data."
   (labels ((handle-attrs (ns local-name qualified-name value explicitp)
-             (declare (ignore ns))
-             (declare (type (or string null) local-name qualified-name))
-             (let ((name (or local-name qualified-name)))
-               (when explicitp
-                 (parse-simple (gethash name (attrs obj)) value)))))
+             (declare (ignore ns)
+                      (type (or string null) local-name qualified-name))
+             (when explicitp
+               (parse-simple (gethash (or local-name qualified-name) (attrs obj)) value))))
     (fxml.klacks:map-attributes #'handle-attrs source)))
 
 (defgeneric parse-obj (obj source)
@@ -385,9 +386,9 @@ as an ECL comment describing those types."
                     (return-from parse))
                    ((eql event :start-element)
                     (return-from parse (parse-obj (make-instance 'xml-object) source)))
-                   ((member event '(:start-document))
+                   ((eql event ':start-document)
                     (fxml.klacks:consume source))
-                   ((member event '(:start-document :dtd :comment))
+                   ((or (eql event :start-document) (eql event :dtd) (eql event :comment))
                     ;; stuff to ignore
                     )
                    (t
@@ -396,8 +397,8 @@ as an ECL comment describing those types."
 (defmethod parse-obj ((obj xml-object) source)
   (loop named parse
         do (multiple-value-bind (event chars name) (fxml.klacks:consume source)
-             (declare (type (or keyword null) event))
-             (declare (type (or string null) chars name))
+             (declare (type (or keyword null) event)
+                      (type (or simple-string null) name chars))
              (cond ((null event)
                     (return-from parse obj))
                    ((eql event :end-document)
@@ -409,10 +410,11 @@ as an ECL comment describing those types."
                     (reset-children-visits obj)
                     (return-from parse obj))
                    ((eql event :characters)
-                    (let ((text (string-trim '(#\Space #\Tab #\Newline) (format nil "~A" chars))))
+                    ;; At this point chars should be non-null
+                    (let ((text (string-trim *whitespace-chars* (the simple-string chars))))
                       (unless (string= text "")
                         (parse-simple (gethash *inner-text-tag* (children obj)) text))))
-                   ((member event '(:start-document :dtd :comment))
+                   ((or (eql event :start-document) (eql event :dtd) (eql event :comment))
                     ;; stuff to ignore
                     )
                    (t
