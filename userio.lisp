@@ -4,7 +4,7 @@
 
 ;; Adopt: https://docs.stevelosh.com/adopt/usage/
 
-(declaim (optimize (speed 3) (safety 1) (space 2)))
+(declaim (optimize (speed 3) (debug 0)))
 
 (defparameter *option-version*
   (adopt:make-option 'version
