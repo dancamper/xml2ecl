@@ -390,7 +390,7 @@ as an ECL comment describing those types."
                     (return-from parse))
                    ((eql event :start-element)
                     (return-from parse (parse-obj (make-instance 'xml-object) source)))
-                   ((eql event ':start-document)
+                   ((eql event :start-document)
                     (fxml.klacks:consume source))
                    ((or (eql event :start-document) (eql event :dtd) (eql event :comment))
                     ;; events to ignore
