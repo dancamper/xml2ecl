@@ -115,6 +115,32 @@ replacement characters down to a single occurrence."
 
 ;;;
 
+(declaim (inline common-base-type))
+(defun common-base-type (new-type old-type)
+  "Given two internal data types, return an internal type that can encompass both.
+Neither of the arguments can be null."
+  (declare (symbol new-type old-type)
+           (dynamic-extent new-type))
+  (flet ((is-arg-p (x)
+           (or (eql x new-type) (eql x old-type))))
+    (cond ((eql new-type old-type)
+           new-type)
+          ((is-arg-p 'default-string)
+           'default-string)
+          ((is-arg-p 'string)
+           'string)
+          ((and (is-arg-p 'neg-number) (is-arg-p 'pos-number))
+           'neg-number)
+          ((and (or (is-arg-p 'neg-number) (is-arg-p 'pos-number))
+                (is-arg-p 'float))
+           'float)
+          (t
+           'string))))
+
+(defun reduce-base-type (types)
+  "Apply `common-base-type' to all elements in a list, reducing to a single base type."
+  (reduce #'common-base-type types))
+
 (defun base-type (value)
   "Determine the basic internal data type of VALUE."
   (if (not value)
@@ -153,30 +179,6 @@ replacement characters down to a single occurrence."
                                               (eql found-type 'float)))
                                  (setf found-type 'string))
                                (return-from char-walker found-type))))))))
-
-(defun common-base-type (new-type old-type)
-  "Given two internal data types, return an internal type that can encompass both.
-Neither of the arguments can be null."
-  (declare (symbol new-type old-type))
-  (flet ((is-arg-p (x)
-           (or (eql x new-type) (eql x old-type))))
-    (cond ((eql new-type old-type)
-           new-type)
-          ((is-arg-p 'default-string)
-           'default-string)
-          ((is-arg-p 'string)
-           'string)
-          ((and (is-arg-p 'neg-number) (is-arg-p 'pos-number))
-           'neg-number)
-          ((and (or (is-arg-p 'neg-number) (is-arg-p 'pos-number))
-                (is-arg-p 'float))
-           'float)
-          (t
-           'string))))
-
-(defun reduce-base-type (types)
-  "Apply `common-base-type' to all elements in a list, reducing to a single base type."
-  (reduce #'common-base-type types))
 
 ;;;
 
